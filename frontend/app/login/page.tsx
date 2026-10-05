@@ -31,9 +31,10 @@ export default function Login() {
   }
 
   return (
-    <div className="mx-auto mt-16 max-w-sm rounded-2xl border bg-white p-8">
-      <h1 className="text-xl font-bold tracking-tight">thedaaakhouse</h1>
-      <p className="mt-1 text-sm text-slate-500">
+    <div className="mx-auto mt-16 max-w-sm paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-8">
+      <h1 className="font-serif text-3xl font-bold tracking-tight text-postalnavy">thedaaakhouse</h1>
+      <p className="postal-copy mt-1 font-hand text-xl italic text-postmark">Sign the Register</p>
+      <p className="mt-1 text-sm text-postmark">
         {mode === "login" ? "Log in to your workspace." : "Create your local account."}
       </p>
       <form onSubmit={submit} className="mt-6 space-y-3">
@@ -43,7 +44,7 @@ export default function Login() {
           onChange={(e) => setPassword(e.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} />
         {error && <p className="rounded-lg bg-red-50 p-2.5 text-sm text-red-700">{error}</p>}
         <button type="submit" disabled={busy || !username || !password}
-          className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
+          className="w-full rounded-md bg-postred px-4 py-2 text-sm font-serif font-bold text-envelope disabled:opacity-40">
           {busy ? "Working…" : mode === "login" ? "Log in" : "Create account"}
         </button>
       </form>

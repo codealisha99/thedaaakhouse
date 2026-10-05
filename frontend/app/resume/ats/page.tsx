@@ -2,9 +2,16 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { ErrorBox, Field, ScoreBadge, Spinner, inputCls } from "@/components/ui";
+import { ErrorBox, Field, Spinner, inputCls } from "@/components/ui";
+import { LabelTape, Letterhead, RubberStamp, TypedMemo } from "@/components/post/postal";
 import { api } from "@/lib/api";
 import type { Application, ATSBreakdown, Resume, ResumeVersion } from "@/types";
+
+function verdict(score: number): { text: string; color: string } {
+  if (score >= 75) return { text: "Approved", color: "#1E7B4D" };
+  if (score >= 50) return { text: "Held for review", color: "#B7791F" };
+  return { text: "Rejected", color: "#C8102E" };
+}
 
 function AtsInner() {
   const params = useSearchParams();
@@ -29,9 +36,7 @@ function AtsInner() {
   }, [params]);
 
   useEffect(() => {
-    if (appId) {
-      api.listVersions(appId).then(setVersions).catch(() => {});
-    }
+    if (appId) api.listVersions(appId).then(setVersions).catch(() => {});
   }, [appId]);
 
   async function submit(e: React.FormEvent) {
@@ -53,19 +58,16 @@ function AtsInner() {
   if (error && apps.length === 0) return <ErrorBox message={error} />;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
-      <div>
-        <h2 className="text-xl font-bold tracking-tight">ATS Checker</h2>
-        <p className="text-sm text-slate-500">Real computed score: 50% keywords · 25% skills · 15% experience · 10% formatting.</p>
-      </div>
-      <form onSubmit={submit} className="space-y-3 rounded-xl border bg-white p-5">
+    <div className="mx-auto max-w-2xl space-y-5">
+      <Letterhead title="Customs & Inspection" subtitle="ATS Checker · every parcel gets stamped" />
+      <form onSubmit={submit} className="paper-keep space-y-3 rounded-sm border border-kraft/60 bg-envelope p-5 shadow-paper">
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Application">
+          <Field label="Parcel (application)">
             <select className={inputCls} value={appId} onChange={(e) => setAppId(e.target.value)}>
               {apps.map((a) => <option key={a.id} value={a.id}>{a.company} · {a.role}</option>)}
             </select>
           </Field>
-          <Field label="Resume / version">
+          <Field label="Contents (resume)">
             <select className={inputCls} value={source} onChange={(e) => setSource(e.target.value)}>
               <option value="" disabled>Select…</option>
               <optgroup label="Master resumes">
@@ -77,32 +79,31 @@ function AtsInner() {
             </select>
           </Field>
         </div>
-        {error && <p className="rounded-lg bg-red-50 p-2.5 text-sm text-red-700">{error}</p>}
+        {error && <p className="font-mono text-sm text-postred">{error}</p>}
         <button type="submit" disabled={busy || !appId || !source}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
-          {busy ? "Analyzing…" : "Run ATS check"}
+          className="min-h-[44px] rounded-[4px] border-[3px] border-postalnavy px-5 py-1.5 font-mono text-sm font-bold uppercase tracking-[0.14em] text-postalnavy transition-transform active:scale-95 disabled:opacity-40">
+          {busy ? "Inspecting…" : "Send through customs"}
         </button>
       </form>
+
       {out && (
-        <div className="space-y-3 rounded-xl border bg-white p-5 text-sm">
-          <p className="text-lg">Score: <ScoreBadge score={out.score} /> <span className="text-xs text-slate-400">{out.breakdown.methodology}</span></p>
-          <p>Keyword match: {out.breakdown.keyword_match}% · Skills: {out.breakdown.skills_match}% · Experience: {out.breakdown.experience_match}% · Formatting: {out.breakdown.formatting_score}%</p>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="font-semibold">Matched skills</p>
-              <p>{out.breakdown.skills_matched.join(", ") || "—"}</p>
-            </div>
-            <div className="rounded-lg bg-red-50 p-3">
-              <p className="font-semibold">Missing skills</p>
-              <p>{out.breakdown.skills_missing.join(", ") || "—"}</p>
-            </div>
+        <div className="space-y-4" key={out.score}>
+          <div className="paper-keep flex items-center justify-center gap-4 rounded-sm border border-kraft/60 bg-envelope p-6 shadow-paper">
+            <RubberStamp text={verdict(out.score).text} color={verdict(out.score).color} size="lg" />
+            <p className="font-serif text-5xl font-bold text-postalnavy">{out.score.toFixed(0)}</p>
           </div>
-          <div>
-            <p className="font-semibold">Recommendations</p>
-            <ul className="list-disc space-y-1 pl-5">
-              {out.breakdown.recommendations.map((r, i) => <li key={i}>{r}</li>)}
+          <TypedMemo title={`Clearance form · ${out.breakdown.methodology}`}>
+            <p>Keywords {out.breakdown.keyword_match}% · Skills {out.breakdown.skills_match}% · Experience {out.breakdown.experience_match}% · Formatting {out.breakdown.formatting_score}%</p>
+            <p className="mt-2"><LabelTape>Cleared</LabelTape></p>
+            <p>{out.breakdown.skills_matched.join(", ") || "—"}</p>
+            <p className="mt-2 text-postred"><strong>HELD:</strong> {out.breakdown.skills_missing.join(", ") || "—"}</p>
+            {out.breakdown.formatting_issues.length > 0 && (
+              <p className="mt-2"><strong>Packaging faults:</strong> {out.breakdown.formatting_issues.join(" · ")}</p>
+            )}
+            <ul className="mt-2 list-none space-y-1">
+              {out.breakdown.recommendations.map((r, i) => <li key={i}>☐ {r}</li>)}
             </ul>
-          </div>
+          </TypedMemo>
         </div>
       )}
     </div>
