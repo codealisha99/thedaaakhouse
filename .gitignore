@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+.next/
+out/
+*.log
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+# Env
+.env
+.env.local
+
+# Data (user uploads — never commit)
+data/resumes/*
+data/jobs/*
+data/generated/*
+backend/data/resumes/*
+backend/data/jobs/*
+backend/data/generated/*
+!data/resumes/.gitkeep
+!data/jobs/.gitkeep
+!data/generated/.gitkeep
+
+# SQLite dev databases (local state, schemas live in code)
+*.db
+*.db-journal
+
+# DB
+postgres-data/
+
+# OS
+.DS_Store
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
