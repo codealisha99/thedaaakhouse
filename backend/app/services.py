@@ -126,9 +126,15 @@ class ResumeService:
             return None
         return obj
 
-    def list(self, limit: int = 50) -> list[models.Resume]:
+    def list(self, limit: int = 50, offset: int = 0) -> list[models.Resume]:
         q = self.db.query(models.Resume).order_by(models.Resume.created_at.desc())
-        return self._scope(q).limit(limit).all()
+        return self._scope(q).offset(offset).limit(limit).all()
+
+    def count(self) -> int:
+        from sqlalchemy import func as _func
+
+        q = self.db.query(_func.count(models.Resume.id))
+        return self._scope(q).scalar() or 0
 
     def list_versions(self, application_id: str | None = None) -> list[models.ResumeVersion]:
         q = self.db.query(models.ResumeVersion).order_by(models.ResumeVersion.created_at.desc())
@@ -176,11 +182,19 @@ class JobService:
             return None
         return obj
 
-    def list(self, limit: int = 50) -> list[models.Job]:
+    def list(self, limit: int = 50, offset: int = 0) -> list[models.Job]:
         q = self.db.query(models.Job).order_by(models.Job.created_at.desc())
         if self.user is not None:
             q = q.filter(models.Job.user_id == self.user.id)
-        return q.limit(limit).all()
+        return q.offset(offset).limit(limit).all()
+
+    def count(self) -> int:
+        from sqlalchemy import func as _func
+
+        q = self.db.query(_func.count(models.Job.id))
+        if self.user is not None:
+            q = q.filter(models.Job.user_id == self.user.id)
+        return q.scalar() or 0
 
 
 class ApplicationService:
@@ -213,7 +227,7 @@ class ApplicationService:
         return self._get_owned(models.Application, app_id)
 
     def list(self, status: str | None = None, search: str | None = None,
-             sort: str = "updated", limit: int = 200) -> list[models.Application]:
+             sort: str = "updated", limit: int = 200, offset: int = 0) -> list[models.Application]:
         q = self.db.query(models.Application).filter(models.Application.user_id == self.user.id)
         if status:
             q = q.filter(models.Application.status == status)
@@ -230,7 +244,24 @@ class ApplicationService:
             "company": models.Application.company.asc(),
             "status": models.Application.status.asc(),
         }.get(sort, models.Application.updated_at.desc())
-        return q.order_by(order_col).limit(limit).all()
+        return q.order_by(order_col).offset(offset).limit(limit).all()
+
+    def count(self, status: str | None = None, search: str | None = None) -> int:
+        from sqlalchemy import func as _func
+
+        q = self.db.query(_func.count(models.Application.id)).filter(
+            models.Application.user_id == self.user.id
+        )
+        if status:
+            q = q.filter(models.Application.status == status)
+        if search:
+            like = f"%{search}%"
+            q = q.filter(
+                (models.Application.company.ilike(like))
+                | (models.Application.role.ilike(like))
+                | (models.Application.location.ilike(like))
+            )
+        return q.scalar() or 0
 
     def update(self, app_id: str, fields: dict) -> models.Application | None:
         obj = self.get(app_id)

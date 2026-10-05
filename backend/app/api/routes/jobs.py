@@ -4,7 +4,7 @@ Long-running AI routes return 501 with a clear message until their milestone
 lands. This keeps the API contract visible without faking analysis.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.dependencies import get_current_user, get_job_service
 from app.db import models
@@ -49,10 +49,16 @@ def create_job(payload: JobCreate, service: JobService = Depends(get_job_service
 
 
 @router.get("")
-def list_jobs(service: JobService = Depends(get_job_service),
+def list_jobs(page: int | None = Query(default=None, ge=1),
+              page_size: int = Query(default=20, ge=1, le=100),
+              service: JobService = Depends(get_job_service),
               user: models.User = Depends(get_current_user)):
     service.user = user
-    return [_to_out(o) for o in service.list()]
+    if page is None:
+        return [_to_out(o) for o in service.list()]
+    items = service.list(limit=page_size, offset=(page - 1) * page_size)
+    return {"items": [_to_out(o) for o in items], "total": service.count(),
+            "page": page, "page_size": page_size}
 
 
 @router.get("/{job_id}")

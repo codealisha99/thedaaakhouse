@@ -1,6 +1,6 @@
 """Resume endpoints — upload + fetch, all scoped to the logged-in user."""
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from app.api.dependencies import get_current_user, get_resume_service
 from app.db import models
@@ -44,9 +44,16 @@ async def upload_resume(file: UploadFile = File(...),
 
 
 @router.get("")
-def list_resumes(service: ResumeService = Depends(get_resume_service),
+def list_resumes(page: int | None = Query(default=None, ge=1),
+                 page_size: int = Query(default=20, ge=1, le=100),
+                 service: ResumeService = Depends(get_resume_service),
                  user: models.User = Depends(get_current_user)):
-    return [_to_out(o) for o in _svc(service, user).list()]
+    svc = _svc(service, user)
+    if page is None:
+        return [_to_out(o) for o in svc.list()]
+    items = svc.list(limit=page_size, offset=(page - 1) * page_size)
+    return {"items": [_to_out(o) for o in items], "total": svc.count(),
+            "page": page, "page_size": page_size}
 
 
 @router.get("/{resume_id}")

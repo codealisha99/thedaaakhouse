@@ -65,9 +65,22 @@ def create_application(payload: ApplicationCreate, db: Session = Depends(get_db)
 def list_applications(status: str | None = Query(default=None),
                       search: str | None = Query(default=None),
                       sort: str = Query(default="updated"),
+                      page: int | None = Query(default=None, ge=1),
+                      page_size: int = Query(default=20, ge=1, le=100),
                       db: Session = Depends(get_db),
                       user: models.User = Depends(get_current_user)):
-    return [_out(o) for o in _svc(db, user).list(status=status, search=search, sort=sort)]
+    svc = _svc(db, user)
+    if page is None:
+        # Legacy shape (bare array) — default UI path, unchanged.
+        return [_out(o) for o in svc.list(status=status, search=search, sort=sort)]
+    items = svc.list(status=status, search=search, sort=sort,
+                     limit=page_size, offset=(page - 1) * page_size)
+    return {
+        "items": [_out(o) for o in items],
+        "total": svc.count(status=status, search=search),
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.get("/{app_id}")
