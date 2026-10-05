@@ -1,4 +1,4 @@
-# DARKHOUSE
+# thedaaakhouse
 
 **Your job-search operating system — one place to track applications, tailor resumes, check ATS compatibility, prepare for interviews, and research companies.**
 
@@ -20,7 +20,7 @@ Details: `docs/architecture.md` · Data model: `docs/data-model.md` · Setup: `d
 ## Sidebar
 
 ```
-DARKHOUSE
+thedaaakhouse
 Applications — Overview · Job Analyzer · Company Research · Interview Prep
 Job Tracker  — spreadsheet-style application table
 Resume       — My Resumes · Tailor Resume · ATS Checker

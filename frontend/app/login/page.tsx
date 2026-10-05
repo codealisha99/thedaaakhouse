@@ -32,7 +32,7 @@ export default function Login() {
 
   return (
     <div className="mx-auto mt-16 max-w-sm rounded-2xl border bg-white p-8">
-      <h1 className="text-xl font-bold tracking-tight">DARKHOUSE</h1>
+      <h1 className="text-xl font-bold tracking-tight">thedaaakhouse</h1>
       <p className="mt-1 text-sm text-slate-500">
         {mode === "login" ? "Log in to your workspace." : "Create your local account."}
       </p>

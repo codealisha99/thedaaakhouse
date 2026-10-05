@@ -38,7 +38,7 @@ export default function Analyzer() {
       <div>
         <h2 className="text-xl font-bold tracking-tight">Job Analyzer</h2>
         <p className="text-sm text-slate-500">
-          Paste a JD — Darkhouse stores the application and extracts skills, responsibilities, and requirements.
+          Paste a JD — thedaaakhouse stores the application and extracts skills, responsibilities, and requirements.
         </p>
       </div>
       <form onSubmit={submit} className="space-y-3 rounded-xl border bg-white p-5">

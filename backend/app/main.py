@@ -18,13 +18,13 @@ async def lifespan(app: FastAPI):
     s = get_settings()
     setup_logging(s.log_level)
     init_db()
-    log.info("darkhouse backend ready (db=%s)", "postgres" if s.is_postgres else "sqlite")
+    log.info("thedaaakhouse backend ready (db=%s)", "postgres" if s.is_postgres else "sqlite")
     yield
 
 
 def create_app() -> FastAPI:
     s = get_settings()
-    app = FastAPI(title="darkhouse", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="thedaaakhouse", version="0.2.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=s.cors_origin_list,

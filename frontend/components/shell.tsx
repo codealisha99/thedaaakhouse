@@ -35,7 +35,7 @@ function SidebarBody({ user, onNav }: { user: string | null; onNav?: () => void 
   return (
     <div className="flex h-full flex-col">
       <Link href="/tracker" onClick={onNav} className="px-5 pb-2 pt-6">
-        <h1 className="text-lg font-bold tracking-tight">DARKHOUSE</h1>
+        <h1 className="text-lg font-bold tracking-tight">thedaaakhouse</h1>
         <p className="text-[11px] text-slate-500">Job-search operating system</p>
       </Link>
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
@@ -120,7 +120,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <div className="min-w-0 flex-1">
         <div className="sticky top-0 z-30 border-b bg-white/90 px-4 py-2.5 backdrop-blur md:hidden">
           <button onClick={() => setOpen(true)} className="rounded-lg border px-3 py-1.5 text-sm font-medium">
-            ☰ Darkhouse
+            ☰ thedaaakhouse
           </button>
         </div>
         <main className="mx-auto max-w-6xl px-4 py-6 md:px-8">{children}</main>
