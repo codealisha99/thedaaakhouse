@@ -13,6 +13,8 @@ out/
 *.log
 tsconfig.tsbuildinfo
 next-env.d.ts
+test-results/
+playwright-report/
 
 # Env
 .env
