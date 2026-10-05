@@ -45,3 +45,20 @@ def test_search_filter_sort_and_delete(client, auth_headers):
     app_id = client.get("/api/applications", headers=auth_headers).json()[0]["id"]
     assert client.delete(f"/api/applications/{app_id}", headers=auth_headers).status_code == 204
     assert len(client.get("/api/applications", headers=auth_headers).json()) == 2
+
+
+def test_pagination_envelope_and_legacy_shape(client, auth_headers):
+    for i in range(5):
+        client.post(
+            "/api/applications",
+            json={"company": f"C{i}", "role": "Eng"},
+            headers=auth_headers,
+        )
+    legacy = client.get("/api/applications", headers=auth_headers).json()
+    assert isinstance(legacy, list) and len(legacy) == 5  # default shape unchanged
+
+    p1 = client.get("/api/applications?page=1&page_size=2", headers=auth_headers).json()
+    assert p1["total"] == 5 and p1["page"] == 1 and len(p1["items"]) == 2
+    p3 = client.get("/api/applications?page=3&page_size=2", headers=auth_headers).json()
+    assert len(p3["items"]) == 1
+    assert client.get("/api/applications?page=1&page_size=101", headers=auth_headers).status_code == 422
