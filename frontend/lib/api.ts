@@ -11,11 +11,15 @@ export const token = {
 
 export class ApiError extends Error {
   status: number;
+  /** status 0 = network/timeout (no HTTP response was received). */
   constructor(status: number, message: string) {
     super(message);
     this.status = status;
   }
 }
+
+/** No request may hang forever (login "Working..." trap). */
+export const REQUEST_TIMEOUT_MS = 15000;
 
 async function req<T>(path: string, init?: RequestInit, auth = true): Promise<T> {
   const headers: Record<string, string> = {};
@@ -24,7 +28,31 @@ async function req<T>(path: string, init?: RequestInit, auth = true): Promise<T>
     const t = token.get();
     if (t) headers["Authorization"] = `Bearer ${t}`;
   }
-  const r = await fetch(`${API}${path}`, { ...init, headers: { ...headers, ...(init?.headers as object) } });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+  let r: Response;
+  try {
+    r = await fetch(`${API}${path}`, {
+      ...init,
+      signal: ctrl.signal,
+      headers: { ...headers, ...(init?.headers as object) },
+    });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new ApiError(
+        0,
+        `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s. ` +
+          `Unable to reach the thedaaakhouse backend at ${API} — check that the API is running.`
+      );
+    }
+    throw new ApiError(
+      0,
+      `Unable to reach the thedaaakhouse backend at ${API}. ` +
+        "Please check that the API is running, then try again."
+    );
+  } finally {
+    clearTimeout(timer);
+  }
   if (r.status === 401 && auth && typeof window !== "undefined") {
     token.clear();
     if (!window.location.pathname.startsWith("/login")) window.location.href = "/login";
@@ -34,7 +62,11 @@ async function req<T>(path: string, init?: RequestInit, auth = true): Promise<T>
     throw new ApiError(r.status, typeof detail === "string" ? detail : r.statusText);
   }
   if (r.status === 204) return undefined as T;
-  return r.json() as Promise<T>;
+  try {
+    return (await r.json()) as T;
+  } catch {
+    throw new ApiError(r.status, "Received an invalid response from the backend. Is something else serving this port?");
+  }
 }
 
 const q = (params: Record<string, string | undefined>) => {
