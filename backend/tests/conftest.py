@@ -40,6 +40,16 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """The auth limiter is process-global; reset per test for isolation."""
+    from app.core.ratelimit import auth_limiter
+
+    auth_limiter._hits.clear()
+    yield
+    auth_limiter._hits.clear()
+
+
 @pytest.fixture()
 def auth_headers(client):
     """Register a fresh user; return Authorization headers."""
