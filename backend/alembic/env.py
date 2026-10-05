@@ -25,14 +25,21 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url)
+
+# An explicitly configured URL (ini, -x opt, or API caller) wins; otherwise
+# the app settings (DATABASE_URL env or deterministic default) apply.
+if not config.get_main_option("sqlalchemy.url") or config.get_main_option(
+    "sqlalchemy.url"
+).startswith("driver://"):
+    config.set_main_option("sqlalchemy.url", settings.database_url)
+db_url = config.get_main_option("sqlalchemy.url")
 
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=settings.database_url,
+        url=db_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
