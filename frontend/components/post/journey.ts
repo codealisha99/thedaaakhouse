@@ -43,6 +43,20 @@ export function stageOf(key: string): Stage {
   return STAGES.find((s) => s.key === key) ?? STAGES[0];
 }
 
+/** Retro chip tone per journey stage. */
+export function chipForStage(stageKey: string): { tone: "grey" | "sage" | "mustard" | "green" | "green-deep" | "danger"; dashed?: boolean } {
+  switch (stageKey) {
+    case "drafted": return { tone: "grey" };
+    case "posted": return { tone: "sage" };
+    case "transit": return { tone: "mustard" };
+    case "out": return { tone: "green" };
+    case "delivered": return { tone: "green-deep" };
+    case "return": return { tone: "danger" };
+    case "dead": return { tone: "grey", dashed: true };
+    default: return { tone: "grey" };
+  }
+}
+
 /** Deterministic pseudo-random rotation in [-1.5deg, 1.5deg] from any id. */
 export function rotateFor(id: string): string {
   let h = 0;

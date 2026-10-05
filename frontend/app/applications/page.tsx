@@ -3,27 +3,35 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ErrorBox } from "@/components/ui";
-import { Letterhead, PaperCard, Postmark, StampBadge, StickyNote, TruckLoader, WaxSealButton } from "@/components/post/postal";
+import { Btn, Card, Chip, PageHeader, Skeleton, StatCard } from "@/components/retro";
 import { pinFor, stageFor, stageOf } from "@/components/post/journey";
 import { api } from "@/lib/api";
 import type { Application } from "@/types";
 
-function Envelope({ app }: { app: Application }) {
+function AppCard({ app }: { app: Application }) {
   const stage = stageOf(stageFor(app.status, app.updated_at));
+  const skills = app.jd_analysis?.skills.slice(0, 3) ?? [];
   return (
-    <Link href={`/applications/${app.id}`}>
-      <PaperCard id={app.id} className="group relative overflow-hidden p-4">
-        <Postmark city={app.company || "NOWHERE"} className="absolute -right-2 -top-2" />
-        <div className="absolute right-3 top-3"><StampBadge text={stage.title} color={stage.color} denom={pinFor(app.id)} /></div>
-        <div className="max-w-[70%] font-mono text-sm leading-relaxed">
-          <p><span className="text-postmark">To:</span> <strong>{app.company || "Untitled company"}</strong></p>
-          <p><span className="text-postmark">Attn:</span> {app.role}</p>
-          <p className="text-xs text-postmark">Ref: DH-{pinFor(app.id)} · {app.status.replace("_", " ")}</p>
+    <Card lift className="flex flex-col p-4">
+      <h4 className="font-pixel text-xl font-bold uppercase leading-tight text-green">{app.role}</h4>
+      <p className="mt-1 font-mono text-sm">{app.company || "Untitled company"}</p>
+      <ul className="mt-3 space-y-1.5 font-mono text-[13px] text-muted">
+        <li>[team] {stage.title}</li>
+        <li>[loc] {app.location || "—"}</li>
+        <li>[date] {app.date_applied || app.date_saved || "—"}</li>
+      </ul>
+      {skills.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {skills.map((s) => <Chip key={s}>{s}</Chip>)}
         </div>
-        <div className="route-line mt-3" aria-hidden="true" />
-        <p className="mt-1 font-hand text-lg text-postmark group-hover:text-postred">open this letter →</p>
-      </PaperCard>
-    </Link>
+      )}
+      <div className="mt-3 border-t-2 border-green pt-2 font-mono text-xs font-bold uppercase">
+        <Link href={`/applications/${app.id}`} className="underline hover:no-underline">
+          Open ↗
+        </Link>
+        <span className="ml-3 text-muted">DH-{pinFor(app.id)}</span>
+      </div>
+    </Card>
   );
 }
 
@@ -39,64 +47,48 @@ export default function Applications() {
 
   const count = (stages: string[]) =>
     apps.filter((a) => stages.includes(stageFor(a.status, a.updated_at))).length;
-  const posted = count(["posted"]);
-  const transit = count(["transit"]);
-  const interviews = count(["out"]);
-  const offers = count(["delivered"]);
-  const followups = apps
-    .filter((a) => a.next_step || a.interview_date)
-    .slice(0, 4);
+  const followups = apps.filter((a) => a.next_step || a.interview_date).slice(0, 5);
 
   return (
     <div className="space-y-6">
-      <Letterhead
-        title="The Front Counter"
-        subtitle="Applications · every letter accounted for"
-        action={<WaxSealButton href="/applications/new">Post a new letter</WaxSealButton>}
+      <PageHeader
+        title="Overview"
+        subtitle="Every application, one board."
+        action={<Btn href="/applications/new">+ New application</Btn>}
       />
 
-      {state === "loading" && <TruckLoader label="Sorting the morning post…" />}
+      {state === "loading" && <Skeleton />}
       {state === "error" && <ErrorBox message={error} />}
 
       {state === "ready" && (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {[
-              { n: posted, label: "Posted", color: "#C8102E" },
-              { n: transit, label: "In Transit", color: "#2E6FBF" },
-              { n: interviews, label: "Interviews", color: "#5B3A8C" },
-              { n: offers, label: "Offers", color: "#1E7B4D" },
-            ].map((s) => (
-              <Link key={s.label} href="/tracker">
-                <PaperCard id={s.label} className="perforated p-4 text-center" tilt={false}>
-                  <p className="font-serif text-4xl font-bold" style={{ color: s.color }}>{s.n}</p>
-                  <p className="mt-1 font-mono text-xs font-bold uppercase tracking-[0.2em]">{s.label}</p>
-                </PaperCard>
-              </Link>
-            ))}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <StatCard n={count(["posted"])} label="Applied" href="/tracker" />
+            <StatCard n={count(["transit"])} label="In Transit" href="/tracker" />
+            <StatCard n={count(["out"])} label="Interviews" href="/tracker" />
+            <StatCard n={count(["delivered"])} label="Offers" href="/tracker" />
           </div>
 
           <div className="grid gap-6 lg:grid-cols-3">
-            <div className="space-y-3 lg:col-span-2">
-              <h3 className="font-serif text-xl font-bold text-postalnavy">Recent letters</h3>
-              {apps.length === 0 && (
-                <p className="font-hand text-2xl text-postmark">No letters yet. Post your first application.</p>
-              )}
-              {apps.slice(0, 6).map((a) => <Envelope key={a.id} app={a} />)}
+            <div className="space-y-4 lg:col-span-2">
+              <h3 className="font-pixel text-xl font-bold uppercase text-green">Recent applications</h3>
+              {apps.length === 0 && <p className="font-mono text-sm text-muted">No applications yet.</p>}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {apps.slice(0, 6).map((a) => <AppCard key={a.id} app={a} />)}
+              </div>
             </div>
-            <div className="space-y-3">
-              <h3 className="font-serif text-xl font-bold text-postalnavy">Today&apos;s Post</h3>
-              <p className="font-mono text-xs uppercase tracking-[0.18em] text-postmark">follow-ups due</p>
-              {followups.length === 0 && (
-                <StickyNote>Nothing due. The pigeons are resting.</StickyNote>
-              )}
-              {followups.map((a) => (
-                <Link key={a.id} href={`/applications/${a.id}`}>
-                  <StickyNote>
-                    {a.company} — {a.next_step || `interview ${a.interview_date ?? ""}`}
-                  </StickyNote>
-                </Link>
-              ))}
+            <div>
+              <h3 className="font-pixel text-xl font-bold uppercase text-green">Follow-ups due</h3>
+              <Card className="mt-4 space-y-2 bg-sage p-4">
+                {followups.length === 0 && (
+                  <p className="font-mono text-sm text-muted">Nothing due. Board is clear.</p>
+                )}
+                {followups.map((a) => (
+                  <Link key={a.id} href={`/applications/${a.id}`} className="block border-2 border-green bg-surface p-2 font-mono text-[13px] hover:bg-sage">
+                    <strong>{a.company}</strong> — {a.next_step || `interview ${a.interview_date ?? ""}`}
+                  </Link>
+                ))}
+              </Card>
             </div>
           </div>
         </>
