@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.routes import applications, auth, future, health, jobs, resumes
 from app.core.config import get_settings
@@ -26,6 +27,16 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     s = get_settings()
     app = FastAPI(title="thedaaakhouse", version="0.2.0", lifespan=lifespan)
+
+    @app.exception_handler(Exception)
+    async def unhandled(request, exc: Exception):  # noqa: ARG001
+        # Full traceback goes to server logs only; clients get a safe message.
+        log.exception("unhandled error on %s %s", request.method, request.url.path)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error. Check the backend logs."},
+        )
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=s.cors_origin_list,

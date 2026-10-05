@@ -13,6 +13,7 @@ from app.analysis.interview import generate_prep
 from app.analysis.keywords import analyze_jd
 from app.analysis.tailor import tailor_resume
 from app.core.config import get_settings
+from app.core.logging import get_logger
 from app.core.security import create_token, hash_password, verify_password
 from app.db import models
 from app.db.models import APPLICATION_STATUSES
@@ -20,6 +21,19 @@ from app.db.repositories import JobRepository, ResumeRepository
 from app.ingestion.jd_parser import clean_text
 from app.ingestion.resume_parser import get_resume_parser
 from app.schemas.resume import CandidateProfile
+
+log = get_logger(__name__)
+
+ALLOWED_RESUME_EXTENSIONS = frozenset({".txt", ".pdf", ".doc", ".docx", ".tex"})
+ALLOWED_RESUME_CONTENT_TYPES = frozenset({
+    "text/plain",
+    "text/latex",
+    "application/x-latex",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/octet-stream",  # browsers send this for unknown types; extension still enforced
+})
 
 
 def _extract_text(data: bytes, content_type: str) -> str:
@@ -52,6 +66,7 @@ class AuthService:
     def login(self, username: str, password: str) -> tuple[models.User, str]:
         user = self.db.query(models.User).filter_by(username=username.strip()).first()
         if user is None or not verify_password(password, user.password_hash):
+            log.warning("failed login attempt")  # never log passwords or tokens
             raise ValueError("invalid username or password")
         token = create_token(user.id, self.settings.jwt_secret, self.settings.jwt_expiry_min)
         return user, token
@@ -72,9 +87,17 @@ class ResumeService:
     def save_upload(self, data: bytes, filename: str, content_type: str) -> models.Resume:
         if len(data) > self.settings.max_upload_bytes:
             raise ValueError(f"file exceeds {self.settings.max_upload_mb} MB limit")
+        ext = "." + (filename.rsplit(".", 1)[-1].lower() if "." in filename else "")
+        if ext not in ALLOWED_RESUME_EXTENSIONS:
+            raise ValueError(
+                f"unsupported file type '{ext or '(none)'}'. "
+                f"Allowed: {', '.join(sorted(ALLOWED_RESUME_EXTENSIONS))}"
+            )
+        if (content_type or "").split(";")[0].strip().lower() not in ALLOWED_RESUME_CONTENT_TYPES:
+            raise ValueError(f"unsupported content type '{content_type}'")
         data_dir = Path(self.settings.data_dir) / "resumes"
         data_dir.mkdir(parents=True, exist_ok=True)
-        safe_name = "".join(c for c in filename if c.isalnum() or c in "._-") or "resume"
+        safe_name = "".join(c for c in filename if c.isalnum() or c in "._-")[:200] or "resume"
         dest = data_dir / safe_name
         i = 1
         while dest.exists():
