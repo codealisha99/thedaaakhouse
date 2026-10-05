@@ -1,7 +1,7 @@
 import type { Application, ApplicationDetail, Resume, ResumeVersion } from "@/types";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const TOKEN_KEY = "darkhouse_token";
+const TOKEN_KEY = "thedaaakhouse_token";
 
 export const token = {
   get: () => (typeof window === "undefined" ? null : localStorage.getItem(TOKEN_KEY)),
