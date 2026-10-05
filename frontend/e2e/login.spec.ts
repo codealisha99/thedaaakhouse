@@ -28,9 +28,9 @@ test("login succeeds, persists token, survives reload", async ({ page }) => {
   // Regression: loading must resolve to content or empty state, never hang.
   await expect(page.locator("body")).not.toContainText("Loading…", { timeout: 20000 });
   await expect(
-    page.getByRole("heading", { name: "Job Tracker" })
+    page.getByRole("heading", { name: "Pigeonholes" })
   ).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/No applications yet|application/i).first()).toBeVisible();
+  await expect(page.getByText(/No letters yet|application/i).first()).toBeVisible();
 });
 
 test("wrong password shows error and re-enables the form (never stuck)", async ({ page }) => {
