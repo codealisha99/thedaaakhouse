@@ -61,11 +61,11 @@ export default function AppDetail({ params }: { params: { id: string } }) {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl border bg-white p-5">
+      <div className="paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-xl font-bold tracking-tight">{a.company || "Untitled"} · {a.role}</h2>
-            <p className="text-sm text-slate-500">{a.location ?? ""}{a.job_url ? <> · <a href={a.job_url} target="_blank" rel="noreferrer" className="text-violet-700 hover:underline">posting ⧉</a></> : null}</p>
+            <h2 className="font-serif text-3xl font-bold tracking-tight text-postalnavy">{a.company || "Untitled"} · {a.role}</h2>
+            <p className="text-sm text-postmark">{a.location ?? ""}{a.job_url ? <> · <a href={a.job_url} target="_blank" rel="noreferrer" className="text-violet-700 hover:underline">posting ⧉</a></> : null}</p>
           </div>
           <div className="flex items-center gap-2">
             <ScoreBadge score={a.ats_score} />
@@ -79,13 +79,13 @@ export default function AppDetail({ params }: { params: { id: string } }) {
       <nav className="flex gap-1.5 overflow-x-auto">
         {TABS.map((t) => (
           <button key={t} onClick={() => setTab(t)}
-            className={`whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium ${tab === t ? "bg-slate-900 text-white" : "border bg-white hover:bg-slate-100"}`}>
+            className={`whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium ${tab === t ? "bg-slate-900 text-white" : "border bg-envelope hover:bg-kraft/20"}`}>
             {t}
           </button>
         ))}
       </nav>
 
-      <div className="rounded-xl border bg-white p-5">
+      <div className="paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5">
         {tab === "Overview" && <OverviewTab appId={params.id} detail={detail} patch={patch} busy={busy} />}
         {tab === "Job Description" && <JdTab detail={detail} />}
         {tab === "Company" && <CompanyTab appId={params.id} detail={detail} run={run} busy={busy} />}
@@ -122,7 +122,7 @@ function OverviewTab({ detail, patch, busy }: {
       <div>
         <h3 className="mb-2 text-sm font-semibold">Timeline</h3>
         {a.status_history.length === 0 ? (
-          <p className="text-sm text-slate-500">No events yet.</p>
+          <p className="text-sm text-postmark">No events yet.</p>
         ) : (
           <ol className="space-y-2 text-sm">
             {[...a.status_history].reverse().map((h, i) => (
@@ -192,7 +192,7 @@ function CompanyTab({ appId, detail, run, busy }: {
         <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://company.com (optional)"
           className="min-w-64 flex-1 rounded-lg border px-3 py-1.5" />
         <button disabled={busy} onClick={() => run(() => api.runResearch(appId, website || undefined), "Research saved.")}
-          className="rounded-lg bg-slate-900 px-4 py-1.5 font-medium text-white disabled:opacity-40">
+          className="rounded-md bg-postred px-4 py-1.5 font-serif font-bold text-envelope disabled:opacity-40">
           Run research
         </button>
       </div>
@@ -224,7 +224,7 @@ function ResumeTab({ appId, detail, run, busy, reload }: {
           <li key={v.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
             <div>
               <p className="font-medium">{v.label}</p>
-              <p className="text-xs text-slate-500">ATS before: {v.ats_score ?? "—"} · missing: {v.missing_keywords.slice(0, 5).join(", ") || "none"}</p>
+              <p className="text-xs text-postmark">ATS before: {v.ats_score ?? "—"} · missing: {v.missing_keywords.slice(0, 5).join(", ") || "none"}</p>
             </div>
             <div className="flex gap-2">
               {detail.application.resume_version_id !== v.id && (
@@ -236,7 +236,7 @@ function ResumeTab({ appId, detail, run, busy, reload }: {
           </li>
         ))}
       </ul>
-      <Link href={`/resume/tailor?app=${appId}`} className="inline-block rounded-lg bg-slate-900 px-4 py-2 font-medium text-white">
+      <Link href={`/resume/tailor?app=${appId}`} className="inline-block rounded-md bg-postred px-4 py-2 font-serif font-bold text-envelope">
         Tailor a resume for this JD →
       </Link>
     </div>
@@ -252,10 +252,10 @@ function AtsTab({ appId, detail, run, busy }: {
     <div className="space-y-3 text-sm">
       <button disabled={busy || !detail.application.resume_version_id}
         onClick={() => run(() => api.runAts(appId, {}), "ATS analysis complete.")}
-        className="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-40">
+        className="rounded-md bg-postred px-4 py-2 font-serif font-bold text-envelope disabled:opacity-40">
         Run ATS on attached resume
       </button>
-      {!detail.application.resume_version_id && <p className="text-slate-500">Attach a resume version first (Resume tab).</p>}
+      {!detail.application.resume_version_id && <p className="text-postmark">Attach a resume version first (Resume tab).</p>}
       {detail.ats_history.length === 0 && <EmptyState>No ATS runs yet.</EmptyState>}
       {latest && (
         <div className="space-y-3">
@@ -293,7 +293,7 @@ function PrepTab({ appId, detail, run, busy }: {
   return (
     <div className="space-y-3 text-sm">
       <button disabled={busy} onClick={() => run(() => api.runPrep(appId), "Interview plan generated.")}
-        className="rounded-lg bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-40">
+        className="rounded-md bg-postred px-4 py-2 font-serif font-bold text-envelope disabled:opacity-40">
         Generate interview plan
       </button>
       {!latest && <EmptyState>No prep plan yet. Generated from this JD — each question says why it exists.</EmptyState>}
@@ -305,7 +305,7 @@ function PrepTab({ appId, detail, run, busy }: {
             {latest.plan.questions.map((q, i) => (
               <li key={i} className="rounded-lg border p-3">
                 <p className="font-medium">{i + 1}. {q.question}</p>
-                <p className="mt-1 text-xs text-slate-500">{q.category} · {q.reason} · <em>{q.source}</em></p>
+                <p className="mt-1 text-xs text-postmark">{q.category} · {q.reason} · <em>{q.source}</em></p>
               </li>
             ))}
           </ol>

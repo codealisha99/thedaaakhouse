@@ -41,10 +41,11 @@ export default function Interview() {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <div>
-        <h2 className="text-xl font-bold tracking-tight">Interview Prep</h2>
-        <p className="text-sm text-slate-500">Derived from the application&apos;s JD — every question states its reason.</p>
+        <h2 className="font-serif text-3xl font-bold tracking-tight text-postalnavy">Interview Prep</h2>
+        <p className="postal-copy font-hand text-xl italic text-postmark">Appointment Slips</p>
+        <p className="text-sm text-postmark">Derived from the application&apos;s JD — every question states its reason.</p>
       </div>
-      <div className="flex gap-2 rounded-xl border bg-white p-5">
+      <div className="flex gap-2 paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5">
         <div className="flex-1">
           <Field label="Application">
             <select className={inputCls} value={appId} onChange={(e) => setAppId(e.target.value)}>
@@ -53,20 +54,20 @@ export default function Interview() {
           </Field>
         </div>
         <button onClick={run} disabled={busy || !appId}
-          className="self-end rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
+          className="self-end rounded-md bg-postred px-4 py-2 text-sm font-serif font-bold text-envelope disabled:opacity-40">
           {busy ? "Generating…" : "Generate"}
         </button>
       </div>
       {error && <ErrorBox message={error} />}
       {!latest ? <EmptyState>No prep plan for this application yet.</EmptyState> : (
-        <div className="space-y-2 rounded-xl border bg-white p-5 text-sm">
+        <div className="space-y-2 paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5 text-sm">
           <p><strong>Topics:</strong> {latest.plan.topics.join(", ")}</p>
           {latest.plan.focus_areas.length > 0 && <p><strong>Focus:</strong> {latest.plan.focus_areas.join(", ")}</p>}
           <ol className="space-y-2">
             {latest.plan.questions.map((ques, i) => (
               <li key={i} className="rounded-lg border p-3">
                 <p className="font-medium">{i + 1}. {ques.question}</p>
-                <p className="mt-1 text-xs text-slate-500">{ques.category} · {ques.reason} · <em>{ques.source}</em></p>
+                <p className="mt-1 text-xs text-postmark">{ques.category} · {ques.reason} · <em>{ques.source}</em></p>
               </li>
             ))}
           </ol>

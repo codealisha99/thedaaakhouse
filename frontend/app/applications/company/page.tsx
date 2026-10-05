@@ -42,10 +42,11 @@ export default function CompanyResearch() {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <div>
-        <h2 className="text-xl font-bold tracking-tight">Company Research</h2>
-        <p className="text-sm text-slate-500">Extracted from the real company page — every claim keeps its source.</p>
+        <h2 className="font-serif text-3xl font-bold tracking-tight text-postalnavy">Company Research</h2>
+        <p className="postal-copy font-hand text-xl italic text-postmark">The Directory</p>
+        <p className="text-sm text-postmark">Extracted from the real company page — every claim keeps its source.</p>
       </div>
-      <div className="space-y-3 rounded-xl border bg-white p-5">
+      <div className="space-y-3 paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5">
         <Field label="Application">
           <select className={inputCls} value={appId} onChange={(e) => setAppId(e.target.value)}>
             {apps.map((a) => <option key={a.id} value={a.id}>{a.company} · {a.role}</option>)}
@@ -55,7 +56,7 @@ export default function CompanyResearch() {
           <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://company.com"
             className={`${inputCls} flex-1`} />
           <button onClick={run} disabled={busy || !appId}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
+            className="rounded-md bg-postred px-4 py-2 text-sm font-serif font-bold text-envelope disabled:opacity-40">
             {busy ? "Fetching…" : "Research"}
           </button>
         </div>
@@ -66,7 +67,7 @@ export default function CompanyResearch() {
         : (
           <div className="space-y-3">
             {(detail?.research ?? []).map((r) => (
-              <div key={r.id} className="rounded-xl border bg-white p-5 text-sm">
+              <div key={r.id} className="paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5 text-sm">
                 <p><strong>{r.name}</strong>{r.website ? <> · <a href={r.website} target="_blank" rel="noreferrer" className="text-violet-700 hover:underline">{r.website}</a></> : " · no URL given"}</p>
                 {((r.profile.extracted_statements as string[]) ?? []).map((s, i) => <p key={i} className="mt-2 rounded-lg bg-slate-50 p-2.5">“{s}”</p>)}
                 {((r.profile.technology_signals as string[]) ?? []).length > 0 && <p className="mt-2">Tech signals: {(r.profile.technology_signals as string[]).join(", ")}</p>}

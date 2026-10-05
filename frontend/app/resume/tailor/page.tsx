@@ -50,10 +50,11 @@ function TailorInner() {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <div>
-        <h2 className="text-xl font-bold tracking-tight">Tailor Resume</h2>
-        <p className="text-sm text-slate-500">Extractive only — bullets are reordered by JD relevance, never rewritten. Missing terms are reported, not filled.</p>
+        <h2 className="font-serif text-3xl font-bold tracking-tight text-postalnavy">Tailor Resume</h2>
+        <p className="postal-copy font-hand text-xl italic text-postmark">The Tailoring Table</p>
+        <p className="text-sm text-postmark">Extractive only — bullets are reordered by JD relevance, never rewritten. Missing terms are reported, not filled.</p>
       </div>
-      <form onSubmit={submit} className="space-y-3 rounded-xl border bg-white p-5">
+      <form onSubmit={submit} className="space-y-3 paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5">
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Application">
             <select className={inputCls} value={appId} onChange={(e) => setAppId(e.target.value)}>
@@ -68,20 +69,20 @@ function TailorInner() {
         </div>
         {error && <p className="rounded-lg bg-red-50 p-2.5 text-sm text-red-700">{error}</p>}
         <button type="submit" disabled={busy || !appId || !resumeId}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
+          className="rounded-md bg-postred px-4 py-2 text-sm font-serif font-bold text-envelope disabled:opacity-40">
           {busy ? "Tailoring…" : "Create tailored version"}
         </button>
       </form>
       {result && detail && (
-        <div className="space-y-3 rounded-xl border bg-white p-5 text-sm">
+        <div className="space-y-3 paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5 text-sm">
           <p className="font-semibold text-emerald-700">Version created and attached to the application. <Link href={`/applications/${appId}`} className="underline">Open workspace →</Link></p>
           <h3 className="font-semibold">Optimization changes ({(detail.changes ?? []).length})</h3>
           <ul className="space-y-2">
             {(detail.changes ?? []).slice(0, 10).map((c, i) => (
               <li key={i} className="rounded-lg bg-slate-50 p-2.5">
                 <p><code className="text-xs">{c.operation}</code> — {c.reason}</p>
-                {c.target_requirement && <p className="text-xs text-slate-500">JD requirement → {c.target_requirement}</p>}
-                {c.source_evidence.length > 0 && <p className="text-xs text-slate-500">Supported by: {c.source_evidence[0]}</p>}
+                {c.target_requirement && <p className="text-xs text-postmark">JD requirement → {c.target_requirement}</p>}
+                {c.source_evidence.length > 0 && <p className="text-xs text-postmark">Supported by: {c.source_evidence[0]}</p>}
               </li>
             ))}
           </ul>
