@@ -2,6 +2,162 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------- thedaaakhouse postal tokens ---------- */
+:root {
+  --desk: #f4ecd8;
+  --card-rotate-max: 1.5deg;
+}
+
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-paper text-ink antialiased;
+}
+
+/* paper grain: SVG turbulence at ~4% opacity + soft vignette (never under raw body text without backing) */
+.desk-surface {
+  background-color: var(--desk);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.35 0 0 0 0 0.28 0 0 0 0 0.18 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.desk-vignette {
+  background: radial-gradient(ellipse at 50% 30%, transparent 55%, rgba(27, 42, 73, 0.1) 100%);
+}
+
+/* airmail stripe border (decorative) */
+.airmail {
+  background: repeating-linear-gradient(
+    -45deg,
+    #d64545 0 12px,
+    #fbf6ea 12px 24px,
+    #2e6fbf 24px 36px,
+    #fbf6ea 36px 48px
+  );
+}
+
+/* perforated stamp edge */
+.perforated {
+  -webkit-mask-image: radial-gradient(circle at 6px 6px, transparent 3px, black 3.5px);
+  -webkit-mask-size: 12px 12px;
+  -webkit-mask-position: -6px -6px;
+  mask-image: radial-gradient(circle at 6px 6px, transparent 3px, black 3.5px);
+  mask-size: 12px 12px;
+  mask-position: -6px -6px;
+}
+
+/* torn paper edge (subtle zigzag bottom) */
+.torn-bottom {
+  clip-path: polygon(
+    0 0, 100% 0, 100% calc(100% - 6px), 97% 100%, 93% calc(100% - 5px),
+    88% 100%, 82% calc(100% - 6px), 76% 100%, 70% calc(100% - 5px),
+    64% 100%, 57% calc(100% - 6px), 50% 100%, 43% calc(100% - 5px),
+    36% 100%, 30% calc(100% - 6px), 24% 100%, 17% calc(100% - 5px),
+    11% 100%, 5% calc(100% - 6px), 0 100%
+  );
+}
+
+/* washi tape strip */
+.washi {
+  background: repeating-linear-gradient(45deg, rgba(200, 16, 46, 0.28) 0 8px, rgba(200, 16, 46, 0.18) 8px 16px);
+  box-shadow: 0 1px 3px rgba(26, 26, 26, 0.25);
+}
+
+/* rubber stamp ink texture */
+.ink-rough {
+  filter: url(#ink-bleed);
+}
+@keyframes stamp-thunk {
+  0% { transform: scale(1.6) rotate(var(--stamp-rot, -8deg)); opacity: 0; }
+  60% { transform: scale(0.96) rotate(var(--stamp-rot, -8deg)); opacity: 1; }
+  100% { transform: scale(1) rotate(var(--stamp-rot, -8deg)); opacity: 1; }
+}
+.stamp-in {
+  animation: stamp-thunk 0.35s ease-out both;
+}
+@keyframes desk-shake {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(2px, -1px); }
+  50% { transform: translate(-2px, 1px); }
+  75% { transform: translate(1px, 2px); }
+}
+.shake-on-stamp {
+  animation: desk-shake 0.12s linear 1;
+}
+
+/* page slide-onto-desk transition */
+@keyframes sheet-in {
+  from { transform: translateY(14px) rotate(0.6deg); opacity: 0; box-shadow: 0 24px 48px rgba(26, 26, 26, 0.25); }
+  to { transform: translateY(0) rotate(0deg); opacity: 1; }
+}
+.sheet-in {
+  animation: sheet-in 0.35s ease-out both;
+}
+
+/* dotted tracking route */
+.route-line {
+  background-image: linear-gradient(to right, #5c6b7a 45%, transparent 45%);
+  background-size: 8px 2px;
+  background-repeat: repeat-x;
+  height: 2px;
+}
+
+/* lined typewriter paper */
+.lined-paper {
+  background-color: #fbf6ea;
+  background-image: repeating-linear-gradient(transparent, transparent 27px, rgba(46, 111, 191, 0.25) 28px);
+  line-height: 28px;
+}
+
+/* mail-truck loading road */
+@keyframes truck-roll {
+  from { left: -15%; }
+  to { left: 105%; }
+}
+.truck-roll {
+  animation: truck-roll 2.2s linear infinite;
+}
+@keyframes wheel-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ------- plain mode: strip theme, keep layout ------- */
+[data-plain="true"] .desk-surface,
+[data-plain="true"] .desk-vignette {
+  background: none;
+  background-color: #f8fafc;
+}
+[data-plain="true"] .postal-rot {
+  transform: none !important;
+}
+[data-plain="true"] .postal-copy {
+  display: none !important;
+}
+[data-plain="true"] .airmail {
+  background: #e2e8f0;
+  height: 2px !important;
+}
+
+/* ------- night sorting shift ------- */
+.night-shift body,
+body.night-shift {
+  background-color: #101b33;
+  color: #f4ecd8;
+}
+body.night-shift .desk-surface {
+  background-color: #101b33;
+}
+body.night-shift .desk-vignette {
+  background: radial-gradient(ellipse at 50% 20%, rgba(255, 214, 140, 0.12) 0%, transparent 55%, rgba(0, 0, 0, 0.5) 100%);
+}
+body.night-shift .paper-keep {
+  background-color: #fbf6ea !important;
+  color: #1a1a1a !important;
+}
+
+/* ------- reduced motion: fades only ------- */
+@media (prefers-reduced-motion: reduce) {
+  .stamp-in, .sheet-in, .shake-on-stamp, .truck-roll {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+  }
 }
