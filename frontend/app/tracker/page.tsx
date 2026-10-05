@@ -76,7 +76,7 @@ export default function Tracker() {
   useEffect(() => {
     const t = setTimeout(load, search ? 300 : 0);
     return () => clearTimeout(t);
-  }, [load]);
+  }, [load, search]);
 
   async function patch(id: string, field: string, value: string) {
     const prev = rows;
