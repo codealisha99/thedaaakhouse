@@ -5,11 +5,17 @@ See .env.example. The app must run with defaults for local dev
 """
 
 from functools import lru_cache
+from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: Known development-only JWT secret. Production must never accept this value.
 DEV_JWT_SECRET = "dev-only-change-me"
+
+#: Absolute directory containing this package's backend/ folder. Relative
+#: paths resolve against it — never against os.getcwd().
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 
 
 class Settings(BaseSettings):
@@ -32,9 +38,12 @@ class Settings(BaseSettings):
     backend_port: int = 8001
 
     # Postgres in docker-compose; SQLite fallback for zero-dependency local dev.
-    database_url: str = "sqlite:///./data/thedaaakhouse.db"
+    # Empty default => derived from data_dir (deterministic, cwd-independent).
+    # Set DATABASE_URL explicitly to override (e.g. Postgres).
+    database_url: str = ""
 
-    data_dir: str = "./data"
+    # Resolved to an absolute path (see validator). Uploads + SQLite live here.
+    data_dir: str = str(_BACKEND_DIR / "data")
     max_upload_mb: int = 10
 
     llm_provider: str = "ollama"  # "ollama" | "openai_compatible"
@@ -59,6 +68,18 @@ class Settings(BaseSettings):
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024
+
+    @model_validator(mode="after")
+    def _resolve_paths(self):
+        # data_dir: relative values anchor at backend/, never cwd.
+        d = Path(self.data_dir)
+        if not d.is_absolute():
+            d = _BACKEND_DIR / d
+        object.__setattr__(self, "data_dir", str(d))
+        # database_url: explicit value wins; otherwise SQLite inside data_dir.
+        if not self.database_url:
+            object.__setattr__(self, "database_url", f"sqlite:///{d}/thedaaakhouse.db")
+        return self
 
     def ensure_production_ready(self) -> None:
         """Refuse to serve production traffic on unsafe defaults.
