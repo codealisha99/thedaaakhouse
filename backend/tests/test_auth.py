@@ -72,6 +72,22 @@ def test_tampered_token_rejected(client, auth_headers):
     assert r.status_code == 401
 
 
+def test_rate_limiter_unit():
+    from app.core.ratelimit import RateLimiter
+
+    rl = RateLimiter(max_hits=3, window_s=60)
+    assert all(rl.allow("k", now=1000.0 + i * 0.1) for i in range(3))
+    assert not rl.allow("k", now=1000.4)
+    assert rl.allow("k", now=1061.0)  # window slid
+    assert rl.allow("other", now=1000.4)
+
+
+def test_security_headers_present(client):
+    r = client.get("/health")
+    assert r.headers.get("x-content-type-options") == "nosniff"
+    assert r.headers.get("x-frame-options") == "DENY"
+
+
 def test_users_cannot_see_each_others_data(client):
     t1 = client.post("/api/auth/register", json={"username": "user1", "password": "password123"}).json()["access_token"]
     t2 = client.post("/api/auth/register", json={"username": "user2", "password": "password123"}).json()["access_token"]
