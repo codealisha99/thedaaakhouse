@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Comma-separated; MUST include every origin the frontend is served from.
     # (Audit finding: hardcoded :3000 broke the UI when it ran on :3100.)
-    cors_origins: str = "http://localhost:3000,http://localhost:3100"
+    cors_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:3100"
 
     jwt_secret: str = DEV_JWT_SECRET
     jwt_expiry_min: int = 60 * 24 * 7
