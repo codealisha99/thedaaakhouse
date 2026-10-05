@@ -13,7 +13,7 @@ const STAGE_TO_STATUS: Record<string, string> = {
   delivered: "offer", return: "rejected", dead: "withdrawn",
 };
 
-function Cell({ value, onSave }: { value: string; onSave: (v: string) => Promise<void> }) {
+function Cell({ value, onSave }: { value: string; onSave: (v: string) => Promise<unknown> }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const [saving, setSaving] = useState(false);
@@ -230,10 +230,10 @@ export default function Tracker() {
                       {f.key === "job_url" && r.job_url ? (
                         <a href={r.job_url} target="_blank" rel="noreferrer" className="text-airmailblue hover:underline" title={r.job_url}>link ⧉</a>
                       ) : (
-                        <Cell value={(r[f.key] as string) ?? ""} onSave={(v) => { void patch(r.id, f.key, v); }} />
+                        <Cell value={(r[f.key] as string) ?? ""} onSave={(v) => patch(r.id, f.key, v)} />
                       )}
                       {f.key === "job_url" && !r.job_url && (
-                        <Cell value="" onSave={(v) => { void patch(r.id, f.key, v); }} />
+                        <Cell value="" onSave={(v) => patch(r.id, f.key, v)} />
                       )}
                     </td>
                   ))}
