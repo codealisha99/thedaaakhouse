@@ -8,6 +8,9 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: Known development-only JWT secret. Production must never accept this value.
+DEV_JWT_SECRET = "dev-only-change-me"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -20,7 +23,7 @@ class Settings(BaseSettings):
     # (Audit finding: hardcoded :3000 broke the UI when it ran on :3100.)
     cors_origins: str = "http://localhost:3000,http://localhost:3100"
 
-    jwt_secret: str = "dev-only-change-me"
+    jwt_secret: str = DEV_JWT_SECRET
     jwt_expiry_min: int = 60 * 24 * 7
 
     # Local dev binds loopback only (port 8001 avoids the Sherlock :8000
@@ -56,6 +59,19 @@ class Settings(BaseSettings):
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024
+
+    def ensure_production_ready(self) -> None:
+        """Refuse to serve production traffic on unsafe defaults.
+
+        Never prints the secret — only states which check failed.
+        """
+        if self.environment.strip().lower() != "production":
+            return
+        problems: list[str] = []
+        if not self.jwt_secret or self.jwt_secret == DEV_JWT_SECRET:
+            problems.append("JWT_SECRET is missing or still the development default")
+        if problems:
+            raise RuntimeError("refusing to start in production: " + "; ".join(problems))
 
 
 @lru_cache
