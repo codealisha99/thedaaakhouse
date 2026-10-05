@@ -52,14 +52,14 @@ One application connects its JD, resume version, ATS runs, interview plans, and 
 ## Quickstart
 
 ```bash
-# Backend (:8000) — run from backend/
+# Backend (:8001) — run from backend/
 source backend/.venv/bin/activate 2>/dev/null || /opt/homebrew/bin/python3.12 -m venv backend/.venv
 pip install -r backend/requirements.txt
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8001
 
 # Frontend (:3000)
 npm install --prefix frontend
-echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > frontend/.env.local
+echo "NEXT_PUBLIC_API_URL=http://127.0.0.1:8001" > frontend/.env.local
 npm run dev --prefix frontend
 
 # Tests
@@ -67,5 +67,5 @@ backend/.venv/bin/python -m pytest backend/tests -v
 ```
 
 Then open the frontend, create an account, and add your first application.
-If the UI says "backend unreachable", confirm the API is up: `curl localhost:8000/health`
+If the UI says "backend unreachable", confirm the API is up: `curl 127.0.0.1:8001/health`
 (note: `CORS_ORIGINS` must include the port you serve the frontend from).

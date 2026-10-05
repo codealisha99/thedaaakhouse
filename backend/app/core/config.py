@@ -23,8 +23,10 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-only-change-me"
     jwt_expiry_min: int = 60 * 24 * 7
 
-    backend_host: str = "0.0.0.0"
-    backend_port: int = 8000
+    # Local dev binds loopback only (port 8001 avoids the Sherlock :8000
+    # collision). Override via env for Docker/prod (e.g. BACKEND_HOST=0.0.0.0).
+    backend_host: str = "127.0.0.1"
+    backend_port: int = 8001
 
     # Postgres in docker-compose; SQLite fallback for zero-dependency local dev.
     database_url: str = "sqlite:///./data/thedaaakhouse.db"

@@ -22,16 +22,16 @@ Skip this and the backend uses `sqlite:///./data/thedaaakhouse.db` automatically
 python3 -m venv backend/.venv
 source backend/.venv/bin/activate
 pip install -r backend/requirements.txt
-uvicorn app.main:app --reload --port 8000   # run from backend/
+uvicorn app.main:app --reload --port 8001   # run from backend/
 ```
 
-Health check: `curl localhost:8000/health`
+Health check: `curl 127.0.0.1:8001/health`
 
 ## 3. Frontend
 
 ```bash
 npm install --prefix frontend
-echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > frontend/.env.local
+echo "NEXT_PUBLIC_API_URL=http://127.0.0.1:8001" > frontend/.env.local
 npm run dev --prefix frontend               # http://localhost:3000
 ```
 
@@ -52,7 +52,7 @@ See `.env.example`. Key ones:
 | LLM_PROVIDER | `ollama` \| `openai_compatible` | `ollama` |
 | OLLAMA_BASE_URL / OLLAMA_MODEL | local LLM | `localhost:11434 / llama3.1:8b` |
 | OPENAI_COMPATIBLE_* | API endpoint/key/model | — |
-| NEXT_PUBLIC_API_URL | backend URL for frontend | `http://localhost:8000` |
+| NEXT_PUBLIC_API_URL | backend URL for frontend | `http://127.0.0.1:8001` |
 | MAX_UPLOAD_MB | upload cap | `10` |
 
 ## 6. Project layout cheat-sheet
