@@ -17,6 +17,7 @@ log = get_logger(__name__)
 async def lifespan(app: FastAPI):
     s = get_settings()
     setup_logging(s.log_level)
+    s.ensure_production_ready()  # raises -> server refuses to start
     init_db()
     log.info("thedaaakhouse backend ready (db=%s)", "postgres" if s.is_postgres else "sqlite")
     yield

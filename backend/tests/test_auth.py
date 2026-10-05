@@ -29,6 +29,49 @@ def test_protected_routes_need_token(client):
     assert client.get("/api/resumes").status_code == 401
 
 
+def test_production_guard_rejects_dev_secret(monkeypatch):
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    get_settings.cache_clear()
+    try:
+        with __import__("pytest").raises(RuntimeError, match="refusing to start"):
+            get_settings().ensure_production_ready()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_production_guard_accepts_real_secret(monkeypatch):
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("JWT_SECRET", "a-long-random-secret-value-for-tests-123")
+    get_settings.cache_clear()
+    try:
+        get_settings().ensure_production_ready()  # must not raise
+    finally:
+        get_settings.cache_clear()
+
+
+def test_expired_token_rejected(client, auth_headers):
+    import time
+
+    from app.core.config import get_settings
+    from app.core.security import create_token
+
+    token = create_token("nobody", get_settings().jwt_secret, expiry_min=0)
+    time.sleep(0.05)
+    r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 401
+
+
+def test_tampered_token_rejected(client, auth_headers):
+    token = auth_headers["Authorization"].split()[1]
+    bad = token[:-2] + ("ab" if not token.endswith("ab") else "cd")
+    r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {bad}"})
+    assert r.status_code == 401
+
+
 def test_users_cannot_see_each_others_data(client):
     t1 = client.post("/api/auth/register", json={"username": "user1", "password": "password123"}).json()["access_token"]
     t2 = client.post("/api/auth/register", json={"username": "user2", "password": "password123"}).json()["access_token"]
