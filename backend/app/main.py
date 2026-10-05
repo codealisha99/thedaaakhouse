@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.routes import applications, auth, future, health, jobs, resumes
 from app.core.config import get_settings
@@ -36,6 +37,17 @@ def create_app() -> FastAPI:
             status_code=500,
             content={"detail": "Internal server error. Check the backend logs."},
         )
+
+    class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            resp = await call_next(request)
+            resp.headers["X-Content-Type-Options"] = "nosniff"
+            resp.headers["X-Frame-Options"] = "DENY"
+            resp.headers["Referrer-Policy"] = "same-origin"
+            resp.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+            return resp
+
+    app.add_middleware(SecurityHeadersMiddleware)
 
     app.add_middleware(
         CORSMiddleware,
