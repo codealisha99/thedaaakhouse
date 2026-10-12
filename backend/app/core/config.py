@@ -46,13 +46,19 @@ class Settings(BaseSettings):
     data_dir: str = str(_BACKEND_DIR / "data")
     max_upload_mb: int = 10
 
-    llm_provider: str = "ollama"  # "ollama" | "openai_compatible"
+    llm_provider: str = "ollama"  # "ollama" | "openai_compatible" | "grok"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
 
     openai_compatible_base_url: str = "https://api.openai.com/v1"
     openai_compatible_api_key: str = ""
     openai_compatible_model: str = "gpt-4o-mini"
+
+    # Grok (xAI) boundary — disabled placeholder. Nothing routes here.
+    grok_enabled: bool = False
+    grok_base_url: str = "https://api.x.ai/v1"
+    grok_api_key: str = ""
+    grok_model: str = "grok-3"
 
     embedding_provider: str = "local"
     embedding_dim: int = 384
