@@ -1,4 +1,4 @@
-import type { Application, ApplicationDetail, Resume, ResumeVersion, StudyPlan, StudyPlanSummary, TopicAnswer } from "@/types";
+import type { Application, ApplicationDetail, ArenaSession, ArenaSummary, Resume, ResumeVersion, StudyPlan, StudyPlanSummary, TopicAnswer } from "@/types";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
 const TOKEN_KEY = "thedaaakhouse_token";
@@ -148,4 +148,11 @@ export const api = {
     req<TopicAnswer>(`/api/learn/plans/${id}/answer`, { method: "POST", body: JSON.stringify({ topic, answer }) }),
   setTopicStatus: (id: string, topic: string, status: string) =>
     req<{ topic: string; status: string }>(`/api/learn/plans/${id}/topics`, { method: "PATCH", body: JSON.stringify({ topic, status }) }),
+  startArena: (mode: string, difficulty: string, application_id?: string, resume_id?: string) =>
+    req<ArenaSession>("/api/arena/sessions", { method: "POST", body: JSON.stringify({ mode, difficulty, application_id, resume_id }) }),
+  listArena: (application_id?: string) =>
+    req<ArenaSummary[]>(`/api/arena/sessions${application_id ? `?application_id=${application_id}` : ""}`),
+  getArena: (id: string) => req<ArenaSession>(`/api/arena/sessions/${id}`),
+  answerArena: (id: string, answer: string) =>
+    req<ArenaSession>(`/api/arena/sessions/${id}/answer`, { method: "POST", body: JSON.stringify({ answer }) }),
 };

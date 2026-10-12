@@ -587,3 +587,133 @@ class LearningService:
         prog.status = status
         self.db.commit()
         return {"topic": topic, "status": status}
+
+
+class ArenaService:
+    """Interview Arena sessions: modes, turns, adaptive follow-ups, summaries."""
+
+    def __init__(self, db: Session, user: models.User):
+        self.db = db
+        self.user = user
+
+    def _owned(self, model, obj_id: str):
+        obj = self.db.get(model, obj_id)
+        if obj is None or getattr(obj, "user_id", None) != self.user.id:
+            return None
+        return obj
+
+    def start(self, mode: str, difficulty: str = "medium",
+              application_id: str | None = None, resume_id: str | None = None) -> dict:
+        from app.analysis.arena import build_session_questions
+
+        jd_text, resume_text = "", ""
+        if application_id:
+            app = self._owned(models.Application, application_id)
+            if app is None:
+                raise LookupError("application not found")
+            jd_text = app.raw_jd
+            if app.resume_version_id:
+                v = self._owned(models.ResumeVersion, app.resume_version_id)
+                resume_text = (v.content if v else "") or ""
+        if resume_id:
+            r = self.db.get(models.Resume, resume_id)
+            if r is None or r.user_id not in (None, self.user.id):
+                raise LookupError("resume not found")
+            resume_text = r.raw_text
+        try:
+            questions = build_session_questions(mode, difficulty, jd_text, resume_text)
+        except ValueError as e:
+            raise ValueError(str(e))
+        s = models.InterviewSession(
+            user_id=self.user.id, application_id=application_id,
+            mode=mode, difficulty=difficulty, status="active",
+            questions=questions, current_index=0,
+        )
+        self.db.add(s)
+        self.db.commit()
+        self.db.refresh(s)
+        return self._out(s)
+
+    def _turns(self, session_id: str) -> list[models.InterviewTurn]:
+        return (
+            self.db.query(models.InterviewTurn)
+            .filter_by(session_id=session_id, user_id=self.user.id)
+            .order_by(models.InterviewTurn.created_at.asc())
+            .all()
+        )
+
+    def _out(self, s: models.InterviewSession) -> dict:
+        turns = self._turns(s.id)
+        current = (s.questions or [])[s.current_index] if s.current_index < len(s.questions or []) else None
+        scores = [t.evaluation.get("score", 0) for t in turns if t.evaluation]
+        return {
+            "id": s.id, "application_id": s.application_id, "mode": s.mode,
+            "difficulty": s.difficulty, "status": s.status,
+            "total": len(s.questions or []), "answered": len(turns),
+            "current_index": s.current_index, "current": current,
+            "turns": [{"question": t.question, "answer": t.answer,
+                       "evaluation": t.evaluation} for t in turns],
+            "average_score": round(sum(scores) / len(scores), 3) if scores else None,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        }
+
+    def get(self, session_id: str) -> dict | None:
+        s = self._owned(models.InterviewSession, session_id)
+        return self._out(s) if s else None
+
+    def list(self, application_id: str | None = None) -> list[dict]:
+        q = self.db.query(models.InterviewSession).filter_by(user_id=self.user.id)
+        if application_id:
+            q = q.filter_by(application_id=application_id)
+        out = []
+        for s in q.order_by(models.InterviewSession.created_at.desc()).all():
+            turns = self._turns(s.id)
+            scores = [t.evaluation.get("score", 0) for t in turns if t.evaluation]
+            out.append({"id": s.id, "application_id": s.application_id, "mode": s.mode,
+                        "difficulty": s.difficulty, "status": s.status,
+                        "total": len(s.questions or []), "answered": len(turns),
+                        "average_score": round(sum(scores) / len(scores), 3) if scores else None,
+                        "created_at": s.created_at.isoformat() if s.created_at else None})
+        return out
+
+    def answer(self, session_id: str, answer: str) -> dict:
+        from app.analysis.arena import evaluate_turn
+
+        s = self._owned(models.InterviewSession, session_id)
+        if s is None:
+            raise LookupError("session not found")
+        if s.status != "active":
+            raise ValueError("session is already complete")
+        questions = s.questions or []
+        if s.current_index >= len(questions):
+            raise ValueError("no more questions in this session")
+        if not (answer or "").strip():
+            raise ValueError("answer must not be empty")
+        question = questions[s.current_index]
+        evaluation = evaluate_turn(question, answer)
+        self.db.add(models.InterviewTurn(
+            user_id=self.user.id, session_id=s.id,
+            question=question, answer=answer[:10000], evaluation=evaluation))
+        s.current_index += 1
+        completed = s.current_index >= len(questions)
+        if completed:
+            s.status = "complete"
+        self.db.commit()
+        out = self._out(s)
+        out["evaluation"] = evaluation
+        out["completed"] = completed
+        if completed:
+            out["summary"] = self._summarize(s)
+        return out
+
+    def _summarize(self, s: models.InterviewSession) -> dict:
+        by_cat: dict[str, list[float]] = {}
+        for t in self._turns(s.id):
+            cat = (t.question or {}).get("topic", "general")
+            by_cat.setdefault(cat, []).append(t.evaluation.get("score", 0))
+        avg = {c: round(sum(v) / len(v), 3) for c, v in by_cat.items()}
+        return {
+            "by_category": avg,
+            "strengths": sorted([c for c, v in avg.items() if v >= 0.7]),
+            "weaknesses": sorted([c for c, v in avg.items() if v < 0.4]),
+        }

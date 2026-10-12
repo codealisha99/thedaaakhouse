@@ -203,3 +203,33 @@ class TopicProgress(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(32), default="not_started")
     attempts: Mapped[int] = mapped_column(default=0)
     correct: Mapped[int] = mapped_column(default=0)
+
+
+class InterviewSession(Base, TimestampMixin):
+    """A mock/drill interview run: ordered questions, turns, running score."""
+
+    __tablename__ = "interview_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    application_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("applications.id"), nullable=True, index=True
+    )
+    mode: Mapped[str] = mapped_column(String(32), default="mock")
+    difficulty: Mapped[str] = mapped_column(String(32), default="medium")
+    status: Mapped[str] = mapped_column(String(32), default="active")
+    questions: Mapped[list] = mapped_column(JSON, default=list)
+    current_index: Mapped[int] = mapped_column(default=0)
+
+
+class InterviewTurn(Base, TimestampMixin):
+    """One answered question inside a session, with its evaluation."""
+
+    __tablename__ = "interview_turns"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("interview_sessions.id"), index=True)
+    question: Mapped[dict] = mapped_column(JSON, default=dict)
+    answer: Mapped[str] = mapped_column(Text, default="")
+    evaluation: Mapped[dict] = mapped_column(JSON, default=dict)
