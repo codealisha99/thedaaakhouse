@@ -14,17 +14,14 @@ export default function LearnHub() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function load() {
-    try {
-      const [a, p] = await Promise.all([api.listApps({}), api.listPlans()]);
-      setApps(a); setPlans(p);
-      if (!appId && a.length > 0) setAppId(a[0].id);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Load failed.");
-    }
-  }
-
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    Promise.all([api.listApps({}), api.listPlans()])
+      .then(([a, p]) => {
+        setApps(a); setPlans(p);
+        setAppId((current) => current || (a.length > 0 ? a[0].id : ""));
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Load failed."));
+  }, []);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
