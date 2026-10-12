@@ -155,4 +155,6 @@ export const api = {
   getArena: (id: string) => req<ArenaSession>(`/api/arena/sessions/${id}`),
   answerArena: (id: string, answer: string) =>
     req<ArenaSession>(`/api/arena/sessions/${id}/answer`, { method: "POST", body: JSON.stringify({ answer }) }),
+  integrations: () =>
+    req<{ providers: { name: string; active: boolean; model: string; status: string; note?: string }[] }>("/api/integrations"),
 };

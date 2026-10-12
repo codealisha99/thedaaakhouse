@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.routes import applications, arena, auth, future, health, jobs, learn, resumes
+from app.api.routes import applications, arena, auth, future, health, integrations, jobs, learn, resumes
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.db.database import init_db
@@ -58,6 +58,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health.router)
     app.include_router(auth.router)
+    app.include_router(integrations.router)
     app.include_router(resumes.router)
     app.include_router(jobs.router)
     app.include_router(applications.router)
