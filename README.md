@@ -23,31 +23,38 @@ Details: `docs/architecture.md` · Data model: `docs/data-model.md` · Setup: `d
 thedaaakhouse
 Applications — Overview · Job Analyzer · Company Research · Interview Prep
 Job Tracker  — spreadsheet-style application table
-Resume       — My Resumes · Tailor Resume · ATS Checker
+Resume       — My Resumes · Tailor Resume · ATS Checker · Resume Studio
+Learn        — Learning Hub (study plans + mastery)
+Arena        — Interview Arena (drills + mock sessions)
 ```
 
 One application connects its JD, resume version, ATS runs, interview plans, and research.
 
-## Status (v0.2)
+## Status (v0.3)
 
 ### Implemented ✅
 
 - JWT auth (register/login, PBKDF2 + HS256, stdlib-only) — all data user-scoped
-- Job Tracker: create/edit/delete/search/filter/sort, status history timeline, persisted
-- Job Analyzer: JD → skills, keywords, responsibilities, experience requirements
+- Job Tracker: create/edit/delete/search/filter/sort/pagination, status history timeline, persisted
+- Job Analyzer: JD → skills, keywords, responsibilities, experience requirements; **live job-URL ingestion** (`POST /api/applications/from-url`, SSRF-guarded, role categorization)
 - Resume upload + versioning (masters never overwritten; versions auto-attach)
+- **Resume Studio**: version edit (manual-edit flagging), line-diff compare, requirement→evidence match report, PDF export
 - ATS Checker: real computed score (50% keywords · 25% skills · 15% experience · 10% formatting) with methodology shown
 - Tailor: extractive bullet reordering with evidence-carrying change ops
 - Interview prep: questions derived from the JD, each with category/reason/source
+- **Interview Arena**: resume/technical/DSA/system-design/CS/AI-ML/mock sessions with scored turns, adaptive follow-ups, summaries
+- **Learning Hub**: JD-derived study plans (missing-first), lessons/exercises/knowledge checks, mastery tracking
+- **Integrations**: provider status incl. disabled Grok boundary placeholder (Coming Soon)
 - Company research: real page fetch + extraction with sources (no fabricated profiles)
+- Alembic migrations (baseline + 3 revisions, fresh + existing DB verified)
 - Loading / empty / error states everywhere; no mock data in production flows
 
 ### Planned 📋
 
 - LLM-backed resume parsing → full `CandidateProfile` (Ollama reachable; stub extracts name only)
 - PDF/DOCX text extraction (currently UTF-8 best-effort), LaTeX + `pdflatex` pipeline
-- Alembic migrations (currently `create_all`; v0.2 required a one-time fresh DB)
 - Redis background jobs (`{job_id, status, progress, result, error}` polling)
+- Job Collector (browser extension + capture API — see `docs/job-collector.md`)
 
 ## Quickstart
 
