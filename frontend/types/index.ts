@@ -155,3 +155,50 @@ export interface TopicAnswer {
   feedback: string;
   progress: { status: string; attempts: number; correct: number };
 }
+
+export interface ArenaQuestion {
+  topic: string;
+  difficulty: string;
+  question: string;
+  hints: string[];
+  tests: string[];
+  complexity: string;
+  source: string;
+  reason: string;
+}
+
+export interface ArenaTurn {
+  question: ArenaQuestion;
+  answer: string;
+  evaluation: { score: number; verdict: string; hits: string[]; missed: string[]; feedback: string; follow_up: string | null };
+}
+
+export interface ArenaSession {
+  id: string;
+  application_id: string | null;
+  mode: string;
+  difficulty: string;
+  status: string;
+  total: number;
+  answered: number;
+  current_index: number;
+  current: ArenaQuestion | null;
+  turns: ArenaTurn[];
+  average_score: number | null;
+  created_at: string | null;
+  evaluation?: ArenaTurn["evaluation"];
+  completed?: boolean;
+  summary?: { by_category: Record<string, number>; strengths: string[]; weaknesses: string[] };
+}
+
+export interface ArenaSummary {
+  id: string;
+  application_id: string | null;
+  mode: string;
+  difficulty: string;
+  status: string;
+  total: number;
+  answered: number;
+  average_score: number | null;
+  created_at: string | null;
+}

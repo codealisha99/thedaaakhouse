@@ -14,3 +14,14 @@ class PreparationPlan(BaseModel):
     topics: list[str] = Field(default_factory=list)
     questions: list[InterviewQuestion] = Field(default_factory=list)
     focus_areas: list[str] = Field(default_factory=list)
+
+
+class ArenaStart(BaseModel):
+    mode: str = "mock"
+    difficulty: str = "medium"
+    application_id: str | None = None
+    resume_id: str | None = None
+
+
+class ArenaAnswer(BaseModel):
+    answer: str

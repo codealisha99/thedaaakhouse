@@ -31,6 +31,10 @@ const NAV: { section: string; links: { href: string; label: string }[] }[] = [
     section: "Learn",
     links: [{ href: "/learn", label: "Learning Hub" }],
   },
+  {
+    section: "Arena",
+    links: [{ href: "/arena", label: "Interview Arena" }],
+  },
 ];
 
 function Wordmark() {
