@@ -20,13 +20,23 @@ export default function Analyzer() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const url = jobUrl.trim();
+    if (!jd.trim() && !url) {
+      setError("Paste a job description or provide a job URL.");
+      return;
+    }
     setPhase("opening");
     try {
-      const app = await api.createApp({
-        company, role: role || "Untitled role", location: location || undefined,
-        job_url: jobUrl || undefined, raw_jd: jd, status: "saved",
-        date_saved: new Date().toISOString().slice(0, 10),
-      });
+      const app = url && !jd.trim()
+        ? await api.createFromUrl({
+            url, company: company || undefined, role: role || undefined,
+            location: location || undefined,
+          })
+        : await api.createApp({
+            company, role: role || "Untitled role", location: location || undefined,
+            job_url: url || undefined, raw_jd: jd, status: "saved",
+            date_saved: new Date().toISOString().slice(0, 10),
+          });
       setPhase("reading");
       setTimeout(() => router.push(`/applications/${app.id}`), 900);
     } catch (err) {

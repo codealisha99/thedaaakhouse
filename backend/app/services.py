@@ -302,6 +302,39 @@ class ApplicationService:
             self.db.refresh(obj)
         return analysis
 
+    def create_from_url(self, url: str, company: str | None = None,
+                        role: str | None = None, location: str | None = None) -> models.Application:
+        """Ingest a job posting URL: fetch -> extract -> analyze -> application.
+
+        Raises ValueError (bad URL / blocked host / empty page) or
+        RuntimeError (fetch failure) with user-facing messages.
+        """
+        from app.analysis.jobpage import analyze_job_url
+
+        result = analyze_job_url(url)
+        posting = result["posting"]
+        obj = self.create(
+            company=company or posting["company"] or "",
+            role=role or posting["title"] or "Untitled role",
+            location=location,
+            job_url=url,
+            raw_jd=posting["description"],
+            status="saved",
+        )
+        analysis = dict(obj.jd_analysis or {})
+        analysis["posting"] = {
+            "title": posting["title"],
+            "company": posting["company"],
+            "role_category": posting["role_category"],
+            "qualifications": posting["qualifications"],
+            "experience": posting["experience"],
+            "source_url": posting["source_url"],
+        }
+        obj.jd_analysis = analysis
+        self.db.commit()
+        self.db.refresh(obj)
+        return obj
+
     def tailor(self, obj: models.Application, resume: models.Resume, label: str | None = None) -> models.ResumeVersion:
         if resume.user_id not in (None, self.user.id):
             raise ValueError("resume not found")

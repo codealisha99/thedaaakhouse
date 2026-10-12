@@ -91,6 +91,8 @@ export const api = {
     req<Application[]>(`/api/applications${q(opts)}`),
   createApp: (payload: Partial<Application> & { company: string; role: string; raw_jd?: string }) =>
     req<Application>("/api/applications", { method: "POST", body: JSON.stringify(payload) }),
+  createFromUrl: (payload: { url: string; company?: string; role?: string; location?: string }) =>
+    req<Application>("/api/applications/from-url", { method: "POST", body: JSON.stringify(payload) }),
   getApp: (id: string) => req<ApplicationDetail>(`/api/applications/${id}`),
   patchApp: (id: string, payload: Partial<Application>) =>
     req<Application>(`/api/applications/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
