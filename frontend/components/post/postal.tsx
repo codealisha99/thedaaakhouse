@@ -3,7 +3,6 @@
 import { motion, useReducedMotion } from "framer-motion";
 import { useState } from "react";
 import { rotateFor } from "./journey";
-import { useTheme } from "./theme";
 
 /* ----------------Letterhead ---------------- */
 export function Letterhead({ title, subtitle, action }: {
@@ -66,7 +65,6 @@ export function StickyNote({ children, color = "#FFF3B0" }: { children: React.Re
 export function WaxSealButton({ children, onClick, href }: {
   children: React.ReactNode; onClick?: () => void; href?: string;
 }) {
-  const { thunk } = useTheme();
   const cls = "group inline-flex items-center gap-2.5 rounded-full bg-postred py-0 pl-1.5 pr-5 font-serif text-base font-bold text-envelope shadow-paper transition-all hover:bg-postreddark active:translate-y-0.5 active:shadow-none";
   const seal = (
     <span className="flex h-9 w-9 items-center justify-center rounded-full bg-postreddark text-lg ring-2 ring-envelope/70 transition-transform group-active:scale-90" aria-hidden="true">
@@ -74,22 +72,21 @@ export function WaxSealButton({ children, onClick, href }: {
     </span>
   );
   const inner = <>{seal}<span className="py-2">{children}</span></>;
-  if (href) return <a href={href} className={cls} onClick={thunk}>{inner}</a>;
-  return <button onClick={() => { thunk(); onClick?.(); }} className={cls}>{inner}</button>;
+  if (href) return <a href={href} className={cls}>{inner}</a>;
+  return <button onClick={onClick} className={cls}>{inner}</button>;
 }
 
 /* ---------------- RubberStamp (animated status) ---------------- */
 export function RubberStamp({ text, color = "#C8102E", size = "md" }: {
   text: string; color?: string; size?: "sm" | "md" | "lg";
 }) {
-  const { thunk } = useTheme();
   const [shake, setShake] = useState(false);
   const sizes = { sm: "px-2 py-0.5 text-[11px]", md: "px-3 py-1 text-sm", lg: "px-5 py-2 text-2xl" }[size];
   return (
     <span className={shake ? "shake-on-stamp inline-block" : "inline-block"}>
       <span
         onAnimationEnd={() => setShake(false)}
-        onAnimationStart={() => { setShake(true); thunk(); }}
+        onAnimationStart={() => setShake(true)}
         className={`stamp-in ink-rough inline-block rounded-[4px] border-[3px] font-mono font-bold uppercase tracking-[0.14em] ${sizes}`}
         style={{ ["--stamp-rot" as string]: "-8deg", color, borderColor: color, background: `${color}14` }}
       >
