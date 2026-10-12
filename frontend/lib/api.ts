@@ -131,4 +131,12 @@ export const api = {
   listVersions: (application_id?: string) =>
     req<ResumeVersion[]>(`/api/applications/versions/all${q({ application_id })}`),
   getVersion: (id: string) => req<ResumeVersion>(`/api/applications/versions/${id}`),
+  patchVersion: (id: string, payload: { label?: string; content?: string }) =>
+    req<ResumeVersion>(`/api/applications/versions/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  compareVersion: (id: string) =>
+    req<{ same_line_set: boolean; added: string[]; removed: string[]; similarity: number; unified_diff: string[] }>(`/api/applications/versions/${id}/compare`),
+  versionPdfUrl: (id: string) => `${API}/api/applications/versions/${id}/pdf`,
+  matchReport: (appId: string, versionId?: string) =>
+    req<{ rows: { requirement: string; status: string; evidence: string[] }[]; coverage: number }>(
+      `/api/applications/${appId}/match-report${versionId ? `?resume_version_id=${versionId}` : ""}`),
 };

@@ -61,6 +61,7 @@ export interface ResumeVersion {
   label: string;
   missing_keywords: string[];
   ats_score: number | null;
+  edited_manually?: boolean;
   created_at: string | null;
   content?: string;
   changes?: ChangeOp[];

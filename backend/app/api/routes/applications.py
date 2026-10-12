@@ -43,6 +43,7 @@ def _version_out(v: models.ResumeVersion) -> dict:
         "id": v.id, "resume_id": v.resume_id, "application_id": v.application_id,
         "label": v.label, "missing_keywords": v.missing_keywords or [],
         "ats_score": v.ats_score,
+        "edited_manually": bool(v.edited_manually),
         "created_at": v.created_at.isoformat() if v.created_at else None,
     }
 
@@ -160,6 +161,53 @@ def analyze_jd(app_id: str, db: Session = Depends(get_db),
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/{app_id}/match-report")
+def match_report(app_id: str, resume_version_id: str | None = None,
+                 db: Session = Depends(get_db),
+                 user: models.User = Depends(get_current_user)):
+    """Transparent JD-requirement -> resume-evidence mapping.
+
+    Uses the attached (or given) tailored version; falls back to the
+    application's raw JD analysis when no version exists.
+    """
+    from app.analysis.keywords import analyze_jd, tokenize
+
+    svc = _svc(db, user)
+    obj = svc.get(app_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="application not found")
+    if not obj.raw_jd.strip():
+        raise HTTPException(status_code=400, detail="this application has no job description")
+    evidence_text = ""
+    if resume_version_id:
+        v = ResumeService(db, user).get_version(resume_version_id)
+        if v is None:
+            raise HTTPException(status_code=404, detail="resume version not found")
+        evidence_text = v.content or ""
+    elif obj.resume_version_id:
+        v = ResumeService(db, user).get_version(obj.resume_version_id)
+        evidence_text = (v.content if v else "") or ""
+    jd = analyze_jd(obj.raw_jd)
+    ev_lines = [l for l in evidence_text.splitlines() if l.strip()]
+    rows = []
+    for skill in jd["skills"]:
+        hits = [l.strip()[:200] for l in ev_lines if skill in set(tokenize(l))]
+        rows.append({"requirement": skill, "status": "matched" if hits else "missing",
+                     "evidence": hits[:3]})
+    for kw in jd["keywords"][:15]:
+        if kw["term"] in {r["requirement"] for r in rows}:
+            continue
+        hits = [l.strip()[:200] for l in ev_lines if kw["term"] in set(tokenize(l))]
+        rows.append({"requirement": kw["term"], "status": "matched" if hits else "missing",
+                     "evidence": hits[:3]})
+    matched = sum(1 for r in rows if r["status"] == "matched")
+    return {"application_id": app_id, "rows": rows,
+            "coverage": round(matched / len(rows), 3) if rows else 0.0}
+
+
+@router.post("/{app_id}/tailor", status_code=201)
+
+
 @router.post("/{app_id}/tailor", status_code=201)
 def tailor_resume(app_id: str, payload: TailorIn, db: Session = Depends(get_db),
                   user: models.User = Depends(get_current_user)):
@@ -274,3 +322,74 @@ def get_version(version_id: str, db: Session = Depends(get_db),
     out["content"] = v.content
     out["changes"] = v.changes or []
     return out
+
+
+@router.patch("/versions/{version_id}")
+def update_version(version_id: str, payload: dict, db: Session = Depends(get_db),
+                   user: models.User = Depends(get_current_user)):
+    """Edit a tailored version's label or content. Content edits are flagged
+    (edited_manually) since they bypass the evidence-preserving tailor."""
+    v = ResumeService(db, user).get_version(version_id)
+    if v is None:
+        raise HTTPException(status_code=404, detail="resume version not found")
+    if "label" in payload and payload["label"] is not None:
+        v.label = str(payload["label"])[:512]
+    if "content" in payload and payload["content"] is not None:
+        content = str(payload["content"])
+        if not content.strip():
+            raise HTTPException(status_code=400, detail="content must not be empty")
+        if content != v.content:
+            v.content = content[:100_000]
+            v.edited_manually = True
+    db.commit()
+    db.refresh(v)
+    out = _version_out(v)
+    out["content"] = v.content
+    out["changes"] = v.changes or []
+    return out
+
+
+@router.get("/versions/{version_id}/compare")
+def compare_version(version_id: str, db: Session = Depends(get_db),
+                    user: models.User = Depends(get_current_user)):
+    """Line-level diff: master resume vs tailored version (extractive-proof)."""
+    import difflib
+
+    v = ResumeService(db, user).get_version(version_id)
+    if v is None:
+        raise HTTPException(status_code=404, detail="resume version not found")
+    master_lines = []
+    if v.resume_id:
+        master = ResumeService(db, user).get(v.resume_id)
+        if master:
+            master_lines = master.raw_text.splitlines()
+    tailored_lines = (v.content or "").splitlines()
+    sm = difflib.SequenceMatcher(a=master_lines, b=tailored_lines, autojunk=False)
+    return {
+        "version_id": v.id,
+        "resume_id": v.resume_id,
+        "same_line_set": sorted(master_lines) == sorted(tailored_lines),
+        "added": [l for l in tailored_lines if l not in master_lines],
+        "removed": [l for l in master_lines if l not in tailored_lines],
+        "similarity": round(sm.ratio(), 4),
+        "unified_diff": list(difflib.unified_diff(
+            master_lines, tailored_lines, fromfile="master", tofile="tailored", lineterm="",
+        ))[:400],
+    }
+
+
+@router.get("/versions/{version_id}/pdf")
+def version_pdf(version_id: str, db: Session = Depends(get_db),
+                user: models.User = Depends(get_current_user)):
+    """Export a tailored version as PDF (plain-text layout, ATS-safe fonts)."""
+    from fastapi.responses import Response
+
+    from app.resume.pdf import render_resume_pdf
+
+    v = ResumeService(db, user).get_version(version_id)
+    if v is None:
+        raise HTTPException(status_code=404, detail="resume version not found")
+    pdf = render_resume_pdf(v.label, v.content or "")
+    safe = "".join(c for c in v.label if c.isalnum() or c in " _-").strip()[:60] or "resume"
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{safe}.pdf"'})

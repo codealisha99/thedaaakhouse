@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { EmptyState, ErrorBox, ScoreBadge, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { Resume, ResumeVersion } from "@/types";
@@ -97,7 +98,9 @@ export default function MyResumes() {
                 {versions.map((v) => (
                   <li key={v.id} className="flex flex-wrap items-center justify-between gap-2 paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-3 text-sm">
                     <div>
-                      <p className="font-medium">{v.label}</p>
+                      <p className="font-medium">
+                        <Link href={`/resume/versions/${v.id}`}>{v.label}</Link>
+                      </p>
                       <p className="text-xs text-postmark">missing: {v.missing_keywords.slice(0, 5).join(", ") || "none"}</p>
                     </div>
                     <div className="flex items-center gap-2">

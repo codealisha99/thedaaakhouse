@@ -129,6 +129,7 @@ class ResumeVersion(Base, TimestampMixin):
     changes: Mapped[list] = mapped_column(JSON, default=list)
     missing_keywords: Mapped[list] = mapped_column(JSON, default=list)
     ats_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    edited_manually: Mapped[bool] = mapped_column(default=False)
 
 
 class ATSAnalysis(Base, TimestampMixin):
