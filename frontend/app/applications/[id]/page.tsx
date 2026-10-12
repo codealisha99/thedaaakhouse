@@ -223,7 +223,9 @@ function ResumeTab({ appId, detail, run, busy, reload }: {
         {detail.versions.map((v: ResumeVersion) => (
           <li key={v.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
             <div>
-              <p className="font-medium">{v.label}</p>
+              <p className="font-medium">
+                <Link href={`/resume/versions/${v.id}`} className="text-violet-700 hover:underline">{v.label}</Link>
+              </p>
               <p className="text-xs text-postmark">ATS before: {v.ats_score ?? "—"} · missing: {v.missing_keywords.slice(0, 5).join(", ") || "none"}</p>
             </div>
             <div className="flex gap-2">
