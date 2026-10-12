@@ -11,6 +11,7 @@ from app.schemas.application import (
     ApplicationCreate,
     ApplicationOut,
     ApplicationUpdate,
+    FromUrlIn,
     ResumeVersionOut,
     TailorIn,
 )
@@ -81,6 +82,22 @@ def list_applications(status: str | None = Query(default=None),
         "page": page,
         "page_size": page_size,
     }
+
+
+@router.post("/from-url", status_code=201)
+def create_from_url(payload: FromUrlIn, db: Session = Depends(get_db),
+                    user: models.User = Depends(get_current_user)):
+    """Ingest a live job posting URL into a fully analyzed application."""
+    try:
+        obj = _svc(db, user).create_from_url(
+            payload.url, company=payload.company, role=payload.role,
+            location=payload.location,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return _out(obj)
 
 
 @router.get("/{app_id}")

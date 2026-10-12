@@ -94,3 +94,10 @@ class ResumeVersionOut(BaseModel):
 class TailorIn(BaseModel):
     resume_id: str
     label: str | None = None
+
+
+class FromUrlIn(BaseModel):
+    url: str
+    company: str | None = None
+    role: str | None = None
+    location: str | None = None
