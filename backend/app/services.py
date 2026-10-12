@@ -11,6 +11,7 @@ from app.analysis.ats import analyze_ats
 from app.analysis.company import research_company
 from app.analysis.interview import generate_prep
 from app.analysis.keywords import analyze_jd
+from app.analysis.learning import evaluate_answer, generate_study_plan
 from app.analysis.tailor import tailor_resume
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -457,3 +458,132 @@ class ApplicationService:
             "application": obj, "ats_history": ats, "interview_preps": preps,
             "research": research, "versions": versions, "attached_version": attached,
         }
+
+
+TOPIC_STATUSES = ("not_started", "in_progress", "mastered", "needs_revision")
+
+
+class LearningService:
+    """Study plans + topic progress, always scoped to the owning user."""
+
+    def __init__(self, db: Session, user: models.User):
+        self.db = db
+        self.user = user
+
+    def _owned(self, model, obj_id: str):
+        obj = self.db.get(model, obj_id)
+        if obj is None or getattr(obj, "user_id", None) != self.user.id:
+            return None
+        return obj
+
+    def _progress_map(self, plan_id: str) -> dict:
+        rows = (
+            self.db.query(models.TopicProgress)
+            .filter_by(plan_id=plan_id, user_id=self.user.id)
+            .all()
+        )
+        return {r.topic: r for r in rows}
+
+    def _plan_out(self, plan: models.StudyPlan) -> dict:
+        prog = self._progress_map(plan.id)
+        topics = []
+        for t in (plan.plan or {}).get("topics", []):
+            p = prog.get(t["term"])
+            topics.append({**t, "progress": {
+                "status": p.status if p else "not_started",
+                "attempts": p.attempts if p else 0,
+                "correct": p.correct if p else 0,
+            }})
+        return {"id": plan.id, "application_id": plan.application_id,
+                "title": plan.title, "topics": topics,
+                "created_at": plan.created_at.isoformat() if plan.created_at else None}
+
+    def create_plan(self, application_id: str, resume_id: str | None = None,
+                    title: str | None = None) -> dict:
+        app = self._owned(models.Application, application_id)
+        if app is None:
+            raise LookupError("application not found")
+        if not app.raw_jd.strip():
+            raise ValueError("this application has no job description to study for")
+        resume_text = ""
+        if resume_id:
+            r = self.db.get(models.Resume, resume_id)
+            if r is None or r.user_id not in (None, self.user.id):
+                raise LookupError("resume not found")
+            resume_text = r.raw_text
+        elif app.resume_version_id:
+            v = self._owned(models.ResumeVersion, app.resume_version_id)
+            resume_text = (v.content if v else "") or ""
+        plan_data = generate_study_plan(app.raw_jd, resume_text)
+        plan = models.StudyPlan(
+            user_id=self.user.id, application_id=app.id,
+            title=title or f"Study plan — {app.company or 'Company'} {app.role}".strip(),
+            plan={"topics": plan_data["topics"], "note": plan_data["note"]},
+        )
+        self.db.add(plan)
+        self.db.flush()
+        for t in plan_data["topics"]:
+            self.db.add(models.TopicProgress(user_id=self.user.id, plan_id=plan.id,
+                                             topic=t["term"]))
+        self.db.commit()
+        self.db.refresh(plan)
+        return self._plan_out(plan)
+
+    def list_plans(self, application_id: str | None = None) -> list[dict]:
+        q = self.db.query(models.StudyPlan).filter_by(user_id=self.user.id)
+        if application_id:
+            q = q.filter_by(application_id=application_id)
+        plans = q.order_by(models.StudyPlan.created_at.desc()).all()
+        out = []
+        for p in plans:
+            prog = self._progress_map(p.id)
+            done = sum(1 for r in prog.values() if r.status == "mastered")
+            out.append({"id": p.id, "application_id": p.application_id, "title": p.title,
+                        "topics": len((p.plan or {}).get("topics", [])), "mastered": done,
+                        "created_at": p.created_at.isoformat() if p.created_at else None})
+        return out
+
+    def get_plan(self, plan_id: str) -> dict | None:
+        plan = self._owned(models.StudyPlan, plan_id)
+        return self._plan_out(plan) if plan else None
+
+    def answer(self, plan_id: str, topic: str, answer: str) -> dict:
+        plan = self._owned(models.StudyPlan, plan_id)
+        if plan is None:
+            raise LookupError("study plan not found")
+        node = next((t for t in (plan.plan or {}).get("topics", []) if t["term"] == topic), None)
+        if node is None:
+            raise ValueError(f"topic '{topic}' is not part of this plan")
+        if not (answer or "").strip():
+            raise ValueError("answer must not be empty")
+        result = evaluate_answer(answer, node["check"]["expected_points"])
+        prog = self._progress_map(plan_id).get(topic)
+        if prog is None:
+            prog = models.TopicProgress(user_id=self.user.id, plan_id=plan_id, topic=topic)
+            self.db.add(prog)
+        prog.attempts += 1
+        if result["verdict"] == "correct":
+            prog.correct += 1
+            prog.status = "mastered"
+        else:
+            prog.status = "needs_revision"
+        self.db.commit()
+        return {**result, "topic": topic,
+                "progress": {"status": prog.status, "attempts": prog.attempts,
+                             "correct": prog.correct}}
+
+    def set_status(self, plan_id: str, topic: str, status: str) -> dict:
+        if status not in TOPIC_STATUSES:
+            raise ValueError(f"invalid status '{status}'")
+        plan = self._owned(models.StudyPlan, plan_id)
+        if plan is None:
+            raise LookupError("study plan not found")
+        if not any(t["term"] == topic for t in (plan.plan or {}).get("topics", [])):
+            raise ValueError(f"topic '{topic}' is not part of this plan")
+        prog = self._progress_map(plan_id).get(topic)
+        if prog is None:
+            prog = models.TopicProgress(user_id=self.user.id, plan_id=plan_id, topic=topic)
+            self.db.add(prog)
+        prog.status = status
+        self.db.commit()
+        return {"topic": topic, "status": status}

@@ -175,3 +175,31 @@ class Company(Base, TimestampMixin):
     website: Mapped[str | None] = mapped_column(Text, nullable=True)
     profile: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     sources: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+
+class StudyPlan(Base, TimestampMixin):
+    """Personalized study plan generated from a JD + the candidate's resume."""
+
+    __tablename__ = "study_plans"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    application_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("applications.id"), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(String(512), default="Study plan")
+    plan: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class TopicProgress(Base, TimestampMixin):
+    """Per-topic mastery tracking inside a study plan."""
+
+    __tablename__ = "topic_progress"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    plan_id: Mapped[str] = mapped_column(String(36), ForeignKey("study_plans.id"), index=True)
+    topic: Mapped[str] = mapped_column(String(256))
+    status: Mapped[str] = mapped_column(String(32), default="not_started")
+    attempts: Mapped[int] = mapped_column(default=0)
+    correct: Mapped[int] = mapped_column(default=0)

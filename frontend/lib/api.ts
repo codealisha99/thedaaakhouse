@@ -1,4 +1,4 @@
-import type { Application, ApplicationDetail, Resume, ResumeVersion } from "@/types";
+import type { Application, ApplicationDetail, Resume, ResumeVersion, StudyPlan, StudyPlanSummary, TopicAnswer } from "@/types";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
 const TOKEN_KEY = "thedaaakhouse_token";
@@ -139,4 +139,13 @@ export const api = {
   matchReport: (appId: string, versionId?: string) =>
     req<{ rows: { requirement: string; status: string; evidence: string[] }[]; coverage: number }>(
       `/api/applications/${appId}/match-report${versionId ? `?resume_version_id=${versionId}` : ""}`),
+  createPlan: (application_id: string, resume_id?: string) =>
+    req<StudyPlan>("/api/learn/plans", { method: "POST", body: JSON.stringify({ application_id, resume_id }) }),
+  listPlans: (application_id?: string) =>
+    req<StudyPlanSummary[]>(`/api/learn/plans${application_id ? `?application_id=${application_id}` : ""}`),
+  getPlan: (id: string) => req<StudyPlan>(`/api/learn/plans/${id}`),
+  answerTopic: (id: string, topic: string, answer: string) =>
+    req<TopicAnswer>(`/api/learn/plans/${id}/answer`, { method: "POST", body: JSON.stringify({ topic, answer }) }),
+  setTopicStatus: (id: string, topic: string, status: string) =>
+    req<{ topic: string; status: string }>(`/api/learn/plans/${id}/topics`, { method: "PATCH", body: JSON.stringify({ topic, status }) }),
 };

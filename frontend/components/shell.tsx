@@ -27,6 +27,10 @@ const NAV: { section: string; links: { href: string; label: string }[] }[] = [
       { href: "/resume/ats", label: "ATS Checker" },
     ],
   },
+  {
+    section: "Learn",
+    links: [{ href: "/learn", label: "Learning Hub" }],
+  },
 ];
 
 function Wordmark() {

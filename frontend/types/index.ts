@@ -116,3 +116,42 @@ export interface ApplicationDetail {
   interview_preps: { id: string; plan: InterviewPlan; created_at: string | null }[];
   research: { id: string; name: string; website: string | null; profile: Record<string, unknown>; sources: { source_url: string; source_title: string; retrieved_at: string }[] }[];
 }
+
+export interface StudyTopic {
+  term: string;
+  known: boolean;
+  priority: number;
+  order: number;
+  resume_evidence: string;
+  levels: { name: string; prompt: string }[];
+  exercises: string[];
+  check: { question: string; expected_points: string[] };
+  progress: { status: string; attempts: number; correct: number };
+}
+
+export interface StudyPlan {
+  id: string;
+  application_id: string | null;
+  title: string;
+  topics: StudyTopic[];
+  created_at: string | null;
+}
+
+export interface StudyPlanSummary {
+  id: string;
+  application_id: string | null;
+  title: string;
+  topics: number;
+  mastered: number;
+  created_at: string | null;
+}
+
+export interface TopicAnswer {
+  topic: string;
+  score: number;
+  verdict: "correct" | "needs_revision";
+  hits: string[];
+  missed: string[];
+  feedback: string;
+  progress: { status: string; attempts: number; correct: number };
+}
