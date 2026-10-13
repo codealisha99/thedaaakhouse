@@ -106,7 +106,10 @@ class ResumeService:
             i += 1
         dest.write_bytes(data)
 
-        raw_text = clean_text(_extract_text(data, content_type)).text
+        from app.ingestion.docparse import parse_upload
+
+        parsed = parse_upload(safe_name, content_type, data)
+        raw_text = clean_text(parsed["text"] or _extract_text(data, content_type)).text
         profile: CandidateProfile = get_resume_parser().parse(raw_text, filename=safe_name)
         obj = self.repo.create(
             user_id=self.user.id if self.user else None,
@@ -115,7 +118,9 @@ class ResumeService:
             file_path=str(dest),
             raw_text=raw_text[:50_000],
             profile=profile.model_dump(),
-            parse_status="parsed" if raw_text.strip() else "empty",
+            parse_status="parsed" if parsed["parse_status"] == "ok" else parsed["parse_status"],
+            parsed_doc={"sections": parsed["sections"], "contact": parsed["contact"],
+                        "warnings": parsed["warnings"]},
         )
         return obj
 
@@ -204,6 +209,7 @@ class ApplicationService:
     def __init__(self, db: Session, user: models.User):
         self.db = db
         self.user = user
+        self.settings = get_settings()
 
     def _get_owned(self, model, obj_id: str):
         obj = self.db.get(model, obj_id)
@@ -336,12 +342,14 @@ class ApplicationService:
         self.db.refresh(obj)
         return obj
 
-    def tailor(self, obj: models.Application, resume: models.Resume, label: str | None = None) -> models.ResumeVersion:
+    def tailor(self, obj: models.Application, resume: models.Resume, label: str | None = None,
+               emphasis: list[str] | None = None, drop_irrelevant: bool = False) -> models.ResumeVersion:
         if resume.user_id not in (None, self.user.id):
             raise ValueError("resume not found")
         if not obj.raw_jd.strip():
             raise ValueError("this application has no job description to tailor against")
-        result = tailor_resume(resume.raw_text, obj.raw_jd)
+        result = tailor_resume(resume.raw_text, obj.raw_jd,
+                               emphasis=emphasis, drop_irrelevant=drop_irrelevant)
         version = models.ResumeVersion(
             user_id=self.user.id,
             resume_id=resume.id,
@@ -374,11 +382,160 @@ class ApplicationService:
         self.db.refresh(obj)
         return obj
 
+    def run_optimization(self, app_id: str, resume_id: str,
+                         policy_dict: dict | None = None) -> dict:
+        """Master -> ATS -> tailor loop -> accept/target_not_reached + LaTeX.
+
+        Same scoring configuration throughout (default AtsConfig). Master
+        resume is only READ, never modified. Retries create new versions;
+        they never corrupt existing data.
+        """
+        from app.analysis.ats_v2 import AtsConfig, analyze_ats_v2
+        from app.analysis.optimize import OptimizePolicy, final_status, plan_next_attempt, should_stop
+        from app.ingestion.docparse import _split_sections
+        from app.resume.latex.compiler import compile_latex
+        from app.resume.latex.template import build_latex, validate_latex
+
+        policy = OptimizePolicy(**(policy_dict or {}))
+        policy.validate()
+        obj = self.get(app_id)
+        if obj is None:
+            raise LookupError("application not found")
+        if not obj.raw_jd.strip():
+            raise ValueError("this application has no job description")
+        resume = ResumeService(self.db, self.user).get(resume_id)
+        if resume is None:
+            raise LookupError("resume not found")
+        master_text = resume.raw_text or ""
+        if not master_text.strip():
+            raise ValueError("master resume has no extractable text — fix parsing first")
+        parsed_doc = resume.parsed_doc or {}
+        cfg = AtsConfig()
+
+        def score_of(text: str) -> dict:
+            return analyze_ats_v2(text, obj.raw_jd, parsed_doc or None, cfg)
+
+        initial = score_of(master_text)
+        initial_score = initial["score"]
+        missing_terms = [e["requirement"] for e in initial.get("missing", [])
+                         if e.get("priority") == "required"][:8]
+
+        attempts: list[dict] = []
+        best_version_id: str | None = None
+        best_score = initial_score
+        stop_reason = ""
+
+        if initial_score >= policy.accept_at_least:
+            status = "accepted"
+        elif initial_score >= policy.trigger_below:
+            status = "target_not_reached"
+            stop_reason = (f"initial score {initial_score} is within "
+                           f"{policy.accept_at_least - initial_score:.1f} points of acceptance; "
+                           "policy does not auto-tailor at or above trigger threshold — manual review")
+        else:
+            scores = [initial_score]
+            n = 0
+            while True:
+                n += 1
+                plan = plan_next_attempt(n, missing_terms)
+                version = self.tailor(
+                    obj, resume, label=f"Optimization attempt {n} — {obj.role}",
+                    emphasis=plan["emphasis"], drop_irrelevant=plan["drop_irrelevant"])
+                rep = score_of(version.content or "")
+                improved = rep["score"] > best_score
+                if rep["score"] >= best_score:
+                    best_score = rep["score"]
+                    best_version_id = version.id
+                missing_terms = [e["requirement"] for e in rep.get("missing", [])
+                                 if e.get("priority") == "required"][:8]
+                attempts.append({
+                    "n": n, "version_id": version.id, "score": rep["score"],
+                    "improved": improved, "strategy": plan["strategy"],
+                    "missing": missing_terms,
+                    "regressed": [e["requirement"] for e in rep.get("missing", [])
+                                  if e.get("priority") == "required"],
+                })
+                scores.append(rep["score"])
+                done, reason = should_stop(scores, policy)
+                if done:
+                    stop_reason = reason
+                    break
+            status = final_status(initial_score, attempts, policy)
+
+        if status == "accepted" and best_version_id is None and initial_score >= policy.accept_at_least:
+            final_content, final_version_id, final_score = master_text, None, initial_score
+        elif best_version_id:
+            best_version = self.db.get(models.ResumeVersion, best_version_id)
+            final_content = best_version.content or ""
+            final_version_id, final_score = best_version_id, best_score
+        else:
+            final_content, final_version_id, final_score = master_text, None, initial_score
+
+        lines = [l for l in final_content.splitlines() if l.strip()]
+        name = (lines[0].strip()[:120] if lines else "Resume")
+        sections = _split_sections(final_content)
+        contact = (parsed_doc.get("contact", {}) if isinstance(parsed_doc, dict) else {}) or {}
+        contact_lines = (contact.get("emails", []) or []) + (contact.get("phones", []) or [])
+        latex = build_latex(name, contact_lines, sections)
+        validation = validate_latex(latex)
+        comp = compile_latex(latex)
+        pdf_path = None
+        if comp["compiled"] and comp["pdf"]:
+            gen_dir = Path(self.settings.data_dir) / "generated"
+            gen_dir.mkdir(parents=True, exist_ok=True)
+            pdf_path = str(gen_dir / f"optimized-{obj.id[:8]}.pdf")
+            Path(pdf_path).write_bytes(comp["pdf"])
+
+        gaps = [e["requirement"] for e in score_of(final_content).get("missing", [])]
+        row = models.OptimizationRun(
+            user_id=self.user.id, application_id=obj.id, resume_id=resume.id,
+            policy=policy.as_dict(), initial_score=initial_score, attempts=attempts,
+            final_version_id=final_version_id, final_score=final_score, status=status,
+            stop_reason=stop_reason or None,
+            final_latex=latex,
+            latex_status="valid" if validation["valid"] else "invalid:" + ";".join(validation["issues"]),
+            pdf_path=pdf_path, gaps=gaps[:20],
+        )
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return {
+            "id": row.id, "application_id": obj.id, "resume_id": resume.id,
+            "policy": policy.as_dict(), "initial_score": initial_score,
+            "attempts": attempts, "final_version_id": final_version_id,
+            "final_score": final_score, "status": status, "stop_reason": stop_reason,
+            "gaps": gaps[:20], "latex_status": row.latex_status,
+            "latex_issues": validation["issues"], "pdf_ready": pdf_path is not None,
+            "compile_status": comp["status"], "compile_log": comp["log"][-1500:],
+        }
+
     def run_ats(self, obj: models.Application, resume_text: str,
                 version_id: str | None = None) -> models.ATSAnalysis:
         if not obj.raw_jd.strip():
             raise ValueError("this application has no job description to analyze against")
         breakdown = analyze_ats(resume_text, obj.raw_jd)
+        row = models.ATSAnalysis(
+            user_id=self.user.id,
+            application_id=obj.id,
+            resume_version_id=version_id,
+            score=breakdown["score"],
+            breakdown=breakdown,
+        )
+        self.db.add(row)
+        obj.ats_score = breakdown["score"]
+        self.db.commit()
+        self.db.refresh(row)
+        return row
+
+    def run_ats_v2(self, obj: models.Application, resume_text: str,
+                   parsed_doc: dict | None = None, version_id: str | None = None,
+                   weights: dict | None = None) -> models.ATSAnalysis:
+        from app.analysis.ats_v2 import AtsConfig, analyze_ats_v2
+
+        if not obj.raw_jd.strip():
+            raise ValueError("this application has no job description to analyze against")
+        cfg = AtsConfig(weights=weights) if weights else AtsConfig()
+        breakdown = analyze_ats_v2(resume_text, obj.raw_jd, parsed_doc, cfg)
         row = models.ATSAnalysis(
             user_id=self.user.id,
             application_id=obj.id,
@@ -717,3 +874,176 @@ class ArenaService:
             "strengths": sorted([c for c, v in avg.items() if v >= 0.7]),
             "weaknesses": sorted([c for c, v in avg.items() if v < 0.4]),
         }
+
+
+PROFILE_LIST_FIELDS = ("education", "skills_demonstrated", "skills_claimed", "skills_to_learn",
+                       "experience", "projects", "target_roles", "industries", "domains",
+                       "excluded_roles", "goals")
+
+
+def _profile_out(p) -> dict:
+    return {"id": p.id, **{f: getattr(p, f) or [] for f in PROFILE_LIST_FIELDS},
+            "preferences": p.preferences or {}, "provenance": p.provenance or {}}
+
+
+class ProfileService:
+    def __init__(self, db: Session, user: models.User):
+        self.db = db
+        self.user = user
+
+    def get_or_create(self) -> models.CareerProfile:
+        p = self.db.query(models.CareerProfile).filter_by(user_id=self.user.id).first()
+        if p is None:
+            p = models.CareerProfile(user_id=self.user.id)
+            self.db.add(p)
+            self.db.commit()
+            self.db.refresh(p)
+        return p
+
+    def get(self) -> dict:
+        return _profile_out(self.get_or_create())
+
+    def update(self, fields: dict) -> dict:
+        p = self.get_or_create()
+        prov = dict(p.provenance or {})
+        for f in PROFILE_LIST_FIELDS:
+            if f in fields and fields[f] is not None:
+                setattr(p, f, fields[f])
+                prov[f] = "user"
+        if "preferences" in fields and fields["preferences"] is not None:
+            p.preferences = fields["preferences"]
+            prov["preferences"] = "user"
+        p.provenance = prov
+        self.db.commit()
+        self.db.refresh(p)
+        return _profile_out(p)
+
+    def seed_from_resume(self, resume_id: str) -> dict:
+        """Fill demonstrated skills + evidence from a resume. Provenance marked;
+        never claims anything absent from the resume text."""
+        from app.analysis.keywords import extract_skills, tokenize
+
+        r = self.db.get(models.Resume, resume_id)
+        if r is None or r.user_id not in (None, self.user.id):
+            raise LookupError("resume not found")
+        p = self.get_or_create()
+        text = r.raw_text or ""
+        found = extract_skills(text)
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        evidence = {}
+        for skill in found:
+            for line in lines:
+                if skill in set(tokenize(line)):
+                    evidence.setdefault(skill, []).append(line[:200])
+                    if len(evidence[skill]) >= 2:
+                        break
+        merged = list(dict.fromkeys(list(p.skills_demonstrated or []) + found))
+        p.skills_demonstrated = merged
+        prov = dict(p.provenance or {})
+        prov["skills_demonstrated"] = f"resume:{resume_id}"
+        p.provenance = prov
+        self.db.commit()
+        self.db.refresh(p)
+        return {"profile": _profile_out(p), "seeded_skills": found, "evidence": evidence}
+
+
+class FitService:
+    def __init__(self, db: Session, user: models.User):
+        self.db = db
+        self.user = user
+
+    def _app(self, app_id: str) -> models.Application | None:
+        obj = self.db.get(models.Application, app_id)
+        if obj is None or obj.user_id != self.user.id:
+            return None
+        return obj
+
+    def _profile_dict(self) -> dict:
+        p = self.db.query(models.CareerProfile).filter_by(user_id=self.user.id).first()
+        if p is None:
+            return {}
+        return _profile_out(p)
+
+    def evaluate(self, application_id: str, weights: dict | None = None) -> dict:
+        from app.analysis.fit import FitConfig, classify_job
+
+        obj = self._app(application_id)
+        if obj is None:
+            raise LookupError("application not found")
+        if not (obj.raw_jd or "").strip():
+            raise ValueError("application has no job description to evaluate")
+        from app.analysis.keywords import analyze_jd
+
+        jd = analyze_jd(obj.raw_jd)
+        jd.update({"title": obj.role, "location": obj.location or "",
+                   "role_category": (obj.jd_analysis or {}).get("posting", {}).get("role_category", ""),
+                   "description_excerpt": (obj.raw_jd or "")[:2000]})
+        cfg = FitConfig(weights=weights) if weights else FitConfig()
+        result = classify_job(jd, self._profile_dict(), cfg)
+        row = models.FitEvaluation(
+            user_id=self.user.id, application_id=obj.id,
+            classification=result["classification"], score=result["score"],
+            factors=result["factors"], reasons=result["reasons"], gaps=result["gaps"],
+            conflicts=result["conflicts"], unknown=result["unknown"],
+            recommendation=result["recommendation"], config=result["config"],
+            overridden=False,
+        )
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return self._eval_out(row)
+
+    def _eval_out(self, row) -> dict:
+        return {"id": row.id, "application_id": row.application_id,
+                "classification": row.classification, "score": row.score,
+                "factors": row.factors or {}, "reasons": row.reasons or [],
+                "gaps": row.gaps or [], "conflicts": row.conflicts or [],
+                "unknown": row.unknown or [], "recommendation": row.recommendation,
+                "config": row.config or {}, "overridden": bool(row.overridden),
+                "created_at": row.created_at.isoformat() if row.created_at else None}
+
+    def history(self, application_id: str) -> list[dict]:
+        if self._app(application_id) is None:
+            raise LookupError("application not found")
+        rows = (self.db.query(models.FitEvaluation)
+                .filter_by(user_id=self.user.id, application_id=application_id)
+                .order_by(models.FitEvaluation.created_at.desc()).all())
+        return [self._eval_out(r) for r in rows]
+
+    def latest(self, application_id: str) -> dict | None:
+        h = self.history(application_id)
+        return h[0] if h else None
+
+    def override(self, evaluation_id: str, classification: str) -> dict:
+        if classification not in ("target", "adjacent", "poor", "needs_review"):
+            raise ValueError(f"unknown classification '{classification}'")
+        row = self.db.get(models.FitEvaluation, evaluation_id)
+        if row is None or row.user_id != self.user.id:
+            raise LookupError("evaluation not found")
+        row.classification = classification
+        row.overridden = True
+        row.recommendation = {"target": "prioritize", "adjacent": "consider",
+                              "poor": "exclude", "needs_review": "review"}[classification]
+        self.db.commit()
+        self.db.refresh(row)
+        return self._eval_out(row)
+
+    def compare(self, application_ids: list[str]) -> list[dict]:
+        out = []
+        for aid in (application_ids or [])[:12]:
+            obj = self._app(aid)
+            if obj is None:
+                continue
+            latest = self.latest(aid)
+            ats_runs = (self.db.query(models.ATSAnalysis)
+                        .filter_by(user_id=self.user.id, application_id=aid)
+                        .order_by(models.ATSAnalysis.created_at.desc()).all())
+            out.append({
+                "application_id": aid, "company": obj.company, "role": obj.role,
+                "status": obj.status,
+                "fit": {"classification": latest["classification"], "score": latest["score"],
+                        "recommendation": latest["recommendation"]} if latest else None,
+                "ats_score": ats_runs[0].score if ats_runs else None,
+                "missing_skills": (latest["gaps"][:8] if latest else []),
+            })
+        return out

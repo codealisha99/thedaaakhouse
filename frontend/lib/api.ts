@@ -110,6 +110,16 @@ export const api = {
   runAts: (id: string, payload: { resume_id?: string; resume_version_id?: string }) =>
     req<{ id: string; score: number; breakdown: import("@/types").ATSBreakdown }>(
       `/api/applications/${id}/ats`, { method: "POST", body: JSON.stringify(payload) }),
+  runAtsV2: (id: string, payload: { resume_id?: string; resume_version_id?: string; weights?: Record<string, number> }) =>
+    req<{ id: string; score: number; breakdown: import("@/types").AtsV2Breakdown }>(
+      `/api/applications/${id}/ats-v2`, { method: "POST", body: JSON.stringify(payload) }),
+  runOptimize: (id: string, resume_id: string, policy?: { trigger_below?: number; accept_at_least?: number; max_attempts?: number }) =>
+    req<import("@/types").OptimizeRun>(
+      `/api/applications/${id}/optimize`, { method: "POST", body: JSON.stringify({ resume_id, policy }) }),
+  optimizeRuns: (application_id?: string) =>
+    req<import("@/types").OptimizeRun[]>(`/api/optimize/runs${application_id ? `?application_id=${application_id}` : ""}`),
+  optimizeLatexUrl: (runId: string) => `${API}/api/optimize/runs/${runId}/latex`,
+  optimizePdfUrl: (runId: string) => `${API}/api/optimize/runs/${runId}/pdf`,
   runPrep: (id: string, resume_id?: string) =>
     req<{ id: string; plan: import("@/types").InterviewPlan }>(
       `/api/applications/${id}/interview-prep`, {
@@ -133,6 +143,20 @@ export const api = {
   getVersion: (id: string) => req<ResumeVersion>(`/api/applications/versions/${id}`),
   patchVersion: (id: string, payload: { label?: string; content?: string }) =>
     req<ResumeVersion>(`/api/applications/versions/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  getProfile: () => req<import("@/types").CareerProfile>("/api/profile"),
+  putProfile: (payload: Partial<import("@/types").CareerProfile>) =>
+    req<import("@/types").CareerProfile>("/api/profile", { method: "PUT", body: JSON.stringify(payload) }),
+  seedProfile: (resume_id: string) =>
+    req<{ profile: import("@/types").CareerProfile; seeded_skills: string[]; evidence: Record<string, string[]> }>(
+      "/api/profile/seed", { method: "POST", body: JSON.stringify({ resume_id }) }),
+  evaluateFit: (application_id: string, weights?: Record<string, number>) =>
+    req<import("@/types").FitEvaluation>("/api/fit/evaluate", { method: "POST", body: JSON.stringify({ application_id, weights }) }),
+  fitHistory: (application_id: string) =>
+    req<import("@/types").FitEvaluation[]>(`/api/fit/history/${application_id}`),
+  overrideFit: (evaluation_id: string, classification: string) =>
+    req<import("@/types").FitEvaluation>(`/api/fit/evaluations/${evaluation_id}`, { method: "PATCH", body: JSON.stringify({ classification }) }),
+  compareApps: (application_ids: string[]) =>
+    req<import("@/types").CompareRow[]>("/api/fit/compare", { method: "POST", body: JSON.stringify({ application_ids }) }),
   compareVersion: (id: string) =>
     req<{ same_line_set: boolean; added: string[]; removed: string[]; similarity: number; unified_diff: string[] }>(`/api/applications/versions/${id}/compare`),
   versionPdfUrl: (id: string) => `${API}/api/applications/versions/${id}/pdf`,
