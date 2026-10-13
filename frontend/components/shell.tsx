@@ -25,6 +25,14 @@ const NAV: { section: string; links: { href: string; label: string }[] }[] = [
       { href: "/resume", label: "My Resumes" },
       { href: "/resume/tailor", label: "Tailor Resume" },
       { href: "/resume/ats", label: "ATS Checker" },
+      { href: "/resume/optimize", label: "ATS Optimize" },
+    ],
+  },
+  {
+    section: "Career",
+    links: [
+      { href: "/profile", label: "Career Profile" },
+      { href: "/compare", label: "Job Comparison" },
     ],
   },
   {

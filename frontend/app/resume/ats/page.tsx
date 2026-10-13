@@ -5,7 +5,7 @@ import { Suspense, useEffect, useState } from "react";
 import { ErrorBox, Field, Spinner, inputCls } from "@/components/ui";
 import { LabelTape, Letterhead, RubberStamp, TypedMemo } from "@/components/post/postal";
 import { api } from "@/lib/api";
-import type { Application, ATSBreakdown, Resume, ResumeVersion } from "@/types";
+import type { Application, ATSBreakdown, AtsV2Breakdown, Resume, ResumeVersion } from "@/types";
 
 function verdict(score: number): { text: string; color: string } {
   if (score >= 75) return { text: "Approved", color: "#1E7B4D" };
@@ -21,6 +21,8 @@ function AtsInner() {
   const [appId, setAppId] = useState(params.get("app") ?? "");
   const [source, setSource] = useState<string>(params.get("version") ? `v:${params.get("version")}` : "");
   const [out, setOut] = useState<{ score: number; breakdown: ATSBreakdown } | null>(null);
+  const [out2, setOut2] = useState<{ score: number; breakdown: AtsV2Breakdown } | null>(null);
+  const [detailed, setDetailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -41,12 +43,13 @@ function AtsInner() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null); setOut(null); setBusy(true);
+    setError(null); setOut(null); setOut2(null); setBusy(true);
     try {
       const payload = source.startsWith("v:")
         ? { resume_version_id: source.slice(2) }
         : { resume_id: source.slice(2) };
-      setOut(await api.runAts(appId, payload));
+      if (detailed) setOut2(await api.runAtsV2(appId, payload));
+      else setOut(await api.runAts(appId, payload));
     } catch (err) {
       setError(err instanceof Error ? err.message : "ATS run failed.");
     } finally {
@@ -80,11 +83,43 @@ function AtsInner() {
           </Field>
         </div>
         {error && <p className="font-mono text-sm text-postred">{error}</p>}
+        <label className="flex cursor-pointer items-center gap-2 font-mono text-xs text-postmark">
+          <input type="checkbox" checked={detailed} onChange={(e) => setDetailed(e.target.checked)} className="h-4 w-4" />
+          Detailed scoring (staged matching, unknown categories excluded)
+        </label>
         <button type="submit" disabled={busy || !appId || !source}
           className="min-h-[44px] rounded-[4px] border-[3px] border-postalnavy px-5 py-1.5 font-mono text-sm font-bold uppercase tracking-[0.14em] text-postalnavy transition-transform active:scale-95 disabled:opacity-40">
           {busy ? "Inspecting…" : "Send through customs"}
         </button>
       </form>
+
+      {out2 && (
+        <div className="space-y-4" key={`v2-${out2.score}`}>
+          <div className="paper-keep flex items-center justify-center gap-4 rounded-sm border border-kraft/60 bg-envelope p-6 shadow-paper">
+            <RubberStamp text={verdict(out2.score).text} color={verdict(out2.score).color} size="lg" />
+            <p className="font-serif text-5xl font-bold text-postalnavy">{out2.score.toFixed(0)}</p>
+          </div>
+          <TypedMemo title="Detailed clearance · unknown categories excluded, renormalized">
+            {out2.breakdown.blockers.length > 0 && (
+              <div className="mb-2 rounded-sm border border-dashed border-postred/60 bg-postred/5 p-2.5">
+                <strong>Eligibility blockers (separate from score):</strong>
+                <ul>{out2.breakdown.blockers.map((b, i) => <li key={i}>■ {b}</li>)}</ul>
+              </div>
+            )}
+            <ul className="space-y-1">
+              {Object.entries(out2.breakdown.categories).map(([name, c]) => (
+                <li key={name}>
+                  <strong>{name}</strong>: {c.score == null ? <em>unknown — {c.detail}</em> : `${c.score}% (w ${c.weight}, +${c.contribution}) — ${c.detail}`}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2"><strong>Mandatory vs preferred:</strong> preferred misses dent lightly, never fail you.</p>
+            <ul className="mt-1 list-none space-y-1">
+              {out2.breakdown.recommendations.map((r, i) => <li key={i}>☐ {r}</li>)}
+            </ul>
+          </TypedMemo>
+        </div>
+      )}
 
       {out && (
         <div className="space-y-4" key={out.score}>

@@ -6,7 +6,7 @@ import { EmptyState, ErrorBox, ScoreBadge, Spinner, StatusBadge, StatusSelect, F
 import { api } from "@/lib/api";
 import type { ApplicationDetail, ResumeVersion } from "@/types";
 
-const TABS = ["Overview", "Job Description", "Company", "Resume", "ATS", "Interview"] as const;
+const TABS = ["Overview", "Fit", "Job Description", "Company", "Resume", "ATS", "Interview"] as const;
 
 export default function AppDetail({ params }: { params: { id: string } }) {
   const [detail, setDetail] = useState<ApplicationDetail | null>(null);
@@ -87,6 +87,7 @@ export default function AppDetail({ params }: { params: { id: string } }) {
 
       <div className="paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5">
         {tab === "Overview" && <OverviewTab appId={params.id} detail={detail} patch={patch} busy={busy} />}
+        {tab === "Fit" && <FitTab appId={params.id} run={run} busy={busy} />}
         {tab === "Job Description" && <JdTab detail={detail} />}
         {tab === "Company" && <CompanyTab appId={params.id} detail={detail} run={run} busy={busy} />}
         {tab === "Resume" && <ResumeTab appId={params.id} detail={detail} run={run} busy={busy} reload={load} />}
@@ -311,6 +312,105 @@ function PrepTab({ appId, detail, run, busy }: {
               </li>
             ))}
           </ol>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const FIT_STYLE: Record<string, string> = {
+  target: "bg-emerald-100 text-emerald-800",
+  adjacent: "bg-blue-100 text-blue-800",
+  poor: "bg-red-100 text-red-800",
+  needs_review: "bg-amber-100 text-amber-800",
+};
+
+function FitTab({ appId, run, busy }: {
+  appId: string;
+  run: <T>(fn: () => Promise<T>, note: string) => Promise<void>; busy: boolean;
+}) {
+  const [evals, setEvals] = useState<import("@/types").FitEvaluation[]>([]);
+  const [state, setState] = useState<"loading" | "ready">("loading");
+
+  const load = useCallback(async () => {
+    try {
+      setEvals(await api.fitHistory(appId));
+    } catch { /* shown as empty with retry below */ }
+    setState("ready");
+  }, [appId]);
+
+  useEffect(() => { load(); }, [load]);
+  const latest = evals[0];
+
+  async function evaluate() {
+    await run(async () => {
+      const e = await api.evaluateFit(appId);
+      setEvals(await api.fitHistory(appId));
+      return e;
+    }, "Fit evaluation complete.");
+  }
+
+  async function override(id: string, classification: string) {
+    await run(async () => {
+      await api.overrideFit(id, classification);
+      setEvals(await api.fitHistory(appId));
+    }, "Override recorded — scoring rules unchanged.");
+  }
+
+  if (state === "loading") return <Spinner />;
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <button disabled={busy} onClick={evaluate}
+          className="rounded-md bg-postred px-4 py-2 font-serif font-bold text-envelope disabled:opacity-40">
+          Evaluate career fit
+        </button>
+        <Link href="/profile" className="text-violet-700 hover:underline">Edit career profile →</Link>
+      </div>
+      {!latest && <EmptyState>No fit evaluation yet. Scored against your career profile with reasons.</EmptyState>}
+      {latest && (
+        <div className="space-y-3">
+          <p className="flex flex-wrap items-center gap-2 text-lg">
+            <span className={`rounded-full px-3 py-0.5 text-sm font-bold ${FIT_STYLE[latest.classification]}`}>
+              {latest.classification.replace("_", " ")}{latest.overridden ? " (override)" : ""}
+            </span>
+            <span className="font-mono">{(latest.score * 100).toFixed(0)}%</span>
+            <span className="text-sm text-postmark">→ {latest.recommendation}</span>
+          </p>
+          <div className="grid gap-2 md:grid-cols-2">
+            {Object.entries(latest.factors).map(([k, v]) => (
+              <p key={k} className="rounded-lg bg-slate-50 p-2">
+                {k}: <strong>{(Number(v) * 100).toFixed(0)}%</strong>
+              </p>
+            ))}
+          </div>
+          {latest.reasons.length > 0 && (
+            <div><p className="font-semibold">Why</p>
+              <ul className="list-disc pl-5 text-slate-700">{latest.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
+            </div>
+          )}
+          {latest.gaps.length > 0 && (
+            <div><p className="font-semibold">Gaps</p>
+              <ul className="list-disc pl-5 text-slate-700">{latest.gaps.slice(0, 8).map((r, i) => <li key={i}>{r}</li>)}</ul>
+            </div>
+          )}
+          {latest.conflicts.length > 0 && (
+            <div className="rounded-lg bg-red-50 p-2.5">
+              <p className="font-semibold">Conflicts</p>
+              <ul className="list-disc pl-5">{latest.conflicts.map((r, i) => <li key={i}>{r}</li>)}</ul>
+            </div>
+          )}
+          {latest.unknown.length > 0 && (
+            <p className="text-xs text-postmark">Unknown: {latest.unknown.join(" · ")}</p>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-postmark">Override:</span>
+            {(["target", "adjacent", "poor", "needs_review"] as const).map((c) => (
+              <button key={c} disabled={busy} onClick={() => override(latest.id, c)}
+                className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-40">{c.replace("_", " ")}</button>
+            ))}
+          </div>
+          {evals.length > 1 && <p className="text-xs text-postmark">{evals.length} evaluations in history (latest shown).</p>}
         </div>
       )}
     </div>

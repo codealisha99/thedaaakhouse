@@ -273,6 +273,42 @@ def run_ats(app_id: str, payload: dict, db: Session = Depends(get_db),
     return {"id": row.id, "score": row.score, "breakdown": row.breakdown}
 
 
+@router.post("/{app_id}/ats-v2", status_code=201)
+def run_ats_v2(app_id: str, payload: dict, db: Session = Depends(get_db),
+               user: models.User = Depends(get_current_user)):
+    """Job-specific ATS v2: staged matching, configurable weights, unknown
+    categories excluded. Optional body: {resume_id?, resume_version_id?, weights?}."""
+    svc = _svc(db, user)
+    obj = svc.get(app_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="application not found")
+    rsvc = ResumeService(db, user)
+    text, version_id, parsed_doc = "", None, None
+    if payload.get("resume_version_id"):
+        v = rsvc.get_version(payload["resume_version_id"])
+        if v is None:
+            raise HTTPException(status_code=404, detail="resume version not found")
+        text, version_id = v.content, v.id
+    elif payload.get("resume_id"):
+        r = rsvc.get(payload["resume_id"])
+        if r is None:
+            raise HTTPException(status_code=404, detail="resume not found")
+        text, parsed_doc = r.raw_text, r.parsed_doc
+    else:
+        attached = db.get(models.ResumeVersion, obj.resume_version_id) if obj.resume_version_id else None
+        if attached is None or attached.user_id != user.id:
+            raise HTTPException(status_code=400, detail="no resume attached — attach a version or pass resume_id")
+        text, version_id = attached.content, attached.id
+    weights = payload.get("weights")
+    if weights is not None and (not isinstance(weights, dict) or not weights):
+        raise HTTPException(status_code=400, detail="weights must be a non-empty object")
+    try:
+        row = svc.run_ats_v2(obj, text, parsed_doc, version_id, weights)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"id": row.id, "score": row.score, "breakdown": row.breakdown}
+
+
 @router.post("/{app_id}/interview-prep", status_code=201)
 def interview_prep(app_id: str, payload: dict, db: Session = Depends(get_db),
                    user: models.User = Depends(get_current_user)):

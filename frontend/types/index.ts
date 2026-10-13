@@ -202,3 +202,93 @@ export interface ArenaSummary {
   average_score: number | null;
   created_at: string | null;
 }
+
+export interface CareerProfile {
+  id: string;
+  education: Record<string, unknown>[];
+  skills_demonstrated: string[];
+  skills_claimed: string[];
+  skills_to_learn: string[];
+  experience: Record<string, unknown>[];
+  projects: Record<string, unknown>[];
+  target_roles: string[];
+  industries: string[];
+  domains: string[];
+  excluded_roles: string[];
+  preferences: Record<string, string>;
+  goals: string[];
+  provenance: Record<string, string>;
+}
+
+export interface FitEvaluation {
+  id: string;
+  application_id: string;
+  classification: "target" | "adjacent" | "poor" | "needs_review";
+  score: number;
+  factors: Record<string, number>;
+  reasons: string[];
+  gaps: string[];
+  conflicts: string[];
+  unknown: string[];
+  recommendation: string;
+  config: Record<string, unknown>;
+  overridden: boolean;
+  created_at: string | null;
+}
+
+export interface AtsV2Category {
+  score: number | null;
+  weight?: number;
+  contribution?: number;
+  detail: string;
+}
+
+export interface AtsV2Breakdown {
+  ats_version: number;
+  score: number;
+  categories: Record<string, AtsV2Category>;
+  matched: { requirement: string; kind: string; evidence: string[]; strength: string; priority: string }[];
+  missing: { requirement: string; kind: string; evidence: string[]; strength: string; priority: string }[];
+  blockers: string[];
+  recommendations: string[];
+  weights: Record<string, number>;
+  methodology: string;
+  provenance: Record<string, unknown>;
+}
+
+export interface CompareRow {
+  application_id: string;
+  company: string;
+  role: string;
+  status: string;
+  fit: { classification: string; score: number; recommendation: string } | null;
+  ats_score: number | null;
+  missing_skills: string[];
+}
+
+export interface OptimizeAttempt {
+  n: number;
+  version_id: string;
+  score: number;
+  improved: boolean;
+  strategy: string;
+  missing: string[];
+  regressed: string[];
+}
+
+export interface OptimizeRun {
+  id: string;
+  application_id: string;
+  resume_id: string | null;
+  policy: { trigger_below: number; accept_at_least: number; max_attempts: number };
+  initial_score: number;
+  attempts: OptimizeAttempt[];
+  final_version_id: string | null;
+  final_score: number | null;
+  status: string;
+  stop_reason: string | null;
+  gaps: string[];
+  latex_status: string | null;
+  pdf_ready: boolean;
+  created_at: string | null;
+}
