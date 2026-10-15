@@ -20,6 +20,7 @@ def _run_out(row: models.OptimizationRun) -> dict:
         "final_score": row.final_score, "status": row.status,
         "gaps": row.gaps or [], "latex_status": row.latex_status,
         "pdf_ready": bool(row.pdf_path),
+        "stage_trace": row.stage_trace or [],
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 

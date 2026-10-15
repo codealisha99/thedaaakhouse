@@ -149,6 +149,9 @@ export const api = {
   seedProfile: (resume_id: string) =>
     req<{ profile: import("@/types").CareerProfile; seeded_skills: string[]; evidence: Record<string, string[]> }>(
       "/api/profile/seed", { method: "POST", body: JSON.stringify({ resume_id }) }),
+  seedNexora: () =>
+    req<{ seeded: boolean; application_id: string; detail: string }>(
+      "/api/dev/seed-nexora", { method: "POST", body: JSON.stringify({}) }),
   evaluateFit: (application_id: string, weights?: Record<string, number>) =>
     req<import("@/types").FitEvaluation>("/api/fit/evaluate", { method: "POST", body: JSON.stringify({ application_id, weights }) }),
   fitHistory: (application_id: string) =>
