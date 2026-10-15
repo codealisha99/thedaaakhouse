@@ -16,6 +16,7 @@ export default function Analyzer() {
   const [jd, setJd] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<"writing" | "opening" | "reading">("writing");
+  const [busy, setBusy] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -66,6 +67,26 @@ export default function Analyzer() {
           {error && <p className="rounded-sm border border-dashed border-postred/60 bg-postred/5 p-2.5 font-mono text-sm text-postred">{error}</p>}
           <WaxSealButton>Slit open &amp; file</WaxSealButton>
         </form>
+        <div className="rounded-xl border border-dashed bg-white p-4 text-sm">
+          <p className="font-semibold">Testing? Load the fictional sample job.</p>
+          <p className="text-xs text-slate-500">Nexora AI Labs (fictional) — development seed, idempotent, job only.</p>
+          <button
+            disabled={busy}
+            onClick={async () => {
+              setError(null); setBusy(true);
+              try {
+                const out = await api.seedNexora();
+                router.push(`/applications/${out.application_id}`);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Seed failed.");
+              } finally {
+                setBusy(false);
+              }
+            }}
+            className="mt-2 rounded-lg border px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-40">
+            {busy ? "Loading…" : "Load fictional test job"}
+          </button>
+        </div>
 
         <div className="flex flex-col items-center justify-start gap-4">
           {/* envelope that opens on submit */}

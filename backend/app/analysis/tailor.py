@@ -12,7 +12,10 @@ import re
 from app.analysis.ats import analyze_ats
 from app.analysis.keywords import analyze_jd, extract_skills
 
-_BULLET_RE = re.compile(r"^([\s]*[-•*·>]\s+)(.*)$")
+# Real-world resumes (especially PDF-extracted text) often use bullets with
+# no trailing space ("•Built ..."). Accept those, but keep "-" strict
+# (requires a space) so hyphen-led prose like "-5% growth" is not misread.
+_BULLET_RE = re.compile(r"^([\s]*(?:[•*·>]\s*|-\s+))(.*)$")
 
 
 def _relevance(line: str, jd_terms: set[str], jd_skills: set[str],

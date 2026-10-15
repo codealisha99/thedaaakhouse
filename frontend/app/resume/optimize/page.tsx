@@ -14,6 +14,19 @@ interface Attempt {
   improved: boolean;
   strategy: string;
   missing: string[];
+  categories?: Record<string, number | null>;
+  newly_matched?: string[];
+  newly_missing?: string[];
+  lines_in?: number;
+  lines_out?: number;
+}
+
+interface StageEvent {
+  order: number;
+  stage: string;
+  status: string;
+  summary: string;
+  source: string;
 }
 
 interface RunOut {
@@ -28,6 +41,7 @@ interface RunOut {
   gaps: string[];
   latex_status: string | null;
   pdf_ready: boolean;
+  stage_trace?: StageEvent[];
 }
 
 const STEPS = ["Master Resume", "Job Description", "Check ATS", "Optimize", "Final Resume"] as const;
@@ -199,11 +213,39 @@ export default function Optimize() {
                 <li key={a.n} className="rounded-lg bg-slate-50 p-2.5">
                   <p>Attempt {a.n}: <strong>{a.score.toFixed(1)}</strong> {a.improved ? "▲ improved" : "— no gain"} · {a.strategy}</p>
                   {a.missing.length > 0 && <p className="text-xs text-slate-500">Still missing: {a.missing.slice(0, 6).join(", ")}</p>}
+                  {(a.newly_matched?.length ?? 0) > 0 && <p className="text-xs text-emerald-700">Newly matched: {a.newly_matched!.slice(0, 6).join(", ")}</p>}
+                  {(a.newly_missing?.length ?? 0) > 0 && <p className="text-xs text-red-600">Newly missing: {a.newly_missing!.slice(0, 6).join(", ")}</p>}
+                  {a.lines_in != null && a.lines_out != null && a.lines_in !== a.lines_out && (
+                    <p className="text-xs text-slate-500">Lines: {a.lines_in} → {a.lines_out} (zero-overlap bullets listed as omitted, not hidden)</p>
+                  )}
                 </li>
               ))}
               {run.attempts.length === 0 && <li className="text-slate-500">No tailoring runs needed.</li>}
             </ul>
           </div>
+          {(run.stage_trace ?? []).length > 0 && (
+            <details className="rounded-xl border bg-white p-5 text-sm" open>
+              <summary className="cursor-pointer font-semibold">
+                Workflow trace ({run.stage_trace!.length} stages — every step accounted for)
+              </summary>
+              <ol className="mt-2 space-y-1.5">
+                {run.stage_trace!.map((s, i) => (
+                  <li key={i} className={`rounded-lg p-2.5 ${
+                    s.status === "failed" ? "bg-red-50" : s.status === "skipped" ? "bg-slate-50" : "bg-emerald-50/60"}`}>
+                    <p>
+                      <span className="font-mono text-xs text-slate-500">{String(s.order).padStart(2, "0")}</span>{" "}
+                      <strong className="font-mono text-xs">{s.stage}</strong>{" "}
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        s.status === "failed" ? "bg-red-100 text-red-800"
+                        : s.status === "skipped" ? "bg-slate-100 text-slate-600"
+                        : "bg-emerald-100 text-emerald-800"}`}>{s.status}</span>
+                    </p>
+                    {s.summary && <p className="mt-0.5 text-slate-600">{s.summary}</p>}
+                  </li>
+                ))}
+              </ol>
+            </details>
+          )}
           <div className="flex flex-wrap gap-2">
             <button onClick={() => download("latex")}
               className="rounded-lg border px-4 py-2 text-sm font-medium hover:bg-slate-50">

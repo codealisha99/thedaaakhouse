@@ -412,11 +412,85 @@ class ApplicationService:
         parsed_doc = resume.parsed_doc or {}
         cfg = AtsConfig()
 
+        import time as _time
+
+        trace: list[dict] = []
+        _order = [0]
+
+        def record(stage: str, status: str, summary: str = "", source: str = "real",
+                   extra: dict | None = None) -> None:
+            _order[0] += 1
+            entry: dict = {"order": _order[0], "stage": stage, "status": status,
+                           "summary": summary, "source": source}
+            if extra:
+                entry.update(extra)
+            trace.append(entry)
+
+        _t0 = _time.time()
+
         def score_of(text: str) -> dict:
             return analyze_ats_v2(text, obj.raw_jd, parsed_doc or None, cfg)
 
+        try:
+            return self._run_optimization_traced(
+                obj, resume, master_text, parsed_doc, cfg, policy, record, score_of, trace, _t0)
+        except Exception as e:
+            # A failed stage stays failed: persist the trace, then re-raise.
+            fail_row = models.OptimizationRun(
+                user_id=self.user.id, application_id=obj.id, resume_id=resume.id,
+                policy=policy.as_dict(), initial_score=0.0, attempts=[],
+                status="failed",
+                stop_reason=f"{type(e).__name__}: {e}",
+                stage_trace=trace + [{"order": _order[0] + 1, "stage": "failed",
+                                      "status": "failed", "summary": f"{type(e).__name__}: {e}",
+                                      "source": "real"}],
+            )
+            self.db.add(fail_row)
+            self.db.commit()
+            raise
+
+    def _run_optimization_traced(self, obj, resume, master_text: str, parsed_doc: dict,
+                                 cfg, policy, record, score_of, trace: list, _t0: float) -> dict:
+        import time as _time
+
+        from app.analysis.keywords import analyze_jd
+        from app.analysis.optimize import final_status, plan_next_attempt, should_stop
+        from app.ingestion.docparse import _split_sections
+        from app.resume.latex.compiler import compile_latex
+        from app.resume.latex.template import build_latex, validate_latex
+
+        record("validate_input", "succeeded",
+               f"resume {len(master_text)} chars, JD {len(obj.raw_jd)} chars")
+        jd = analyze_jd(obj.raw_jd)
+        record("analyze_jd", "succeeded",
+               f"{len(jd.get('skills', []))} skills, "
+               f"{len(jd.get('responsibilities', []))} responsibilities, "
+               f"exp {jd.get('experience_years')}",
+               extra={"skills": jd.get("skills", [])[:12]})
+
+        prof = self.db.query(models.CareerProfile).filter_by(user_id=self.user.id).first()
+        if prof is None:
+            record("career_fit", "skipped", "no career profile — fit assessment unavailable",
+                   extra={"classification": None})
+        else:
+            try:
+                from app.analysis.fit import FitConfig, classify_job
+
+                jd_full = dict(jd)
+                jd_full.update({"title": obj.role, "location": obj.location or "",
+                                "role_category": (obj.jd_analysis or {}).get("posting", {}).get("role_category", ""),
+                                "description_excerpt": (obj.raw_jd or "")[:2000]})
+                verdict = classify_job(jd_full, _profile_out(prof), FitConfig())
+                record("career_fit", "succeeded",
+                       f"{verdict['classification']} {verdict['score']:.2f} → {verdict['recommendation']}",
+                       extra={"classification": verdict["classification"], "score": verdict["score"]})
+            except Exception as e:
+                record("career_fit", "failed", f"{type(e).__name__}: {e}")
+
         initial = score_of(master_text)
         initial_score = initial["score"]
+        record("ats_initial", "succeeded", f"master scores {initial_score:.1f}/100",
+               extra={"score": initial_score})
         missing_terms = [e["requirement"] for e in initial.get("missing", [])
                          if e.get("priority") == "required"][:8]
 
@@ -424,6 +498,7 @@ class ApplicationService:
         best_version_id: str | None = None
         best_score = initial_score
         stop_reason = ""
+        prev_matched = {e["requirement"] for e in initial.get("matched", [])}
 
         if initial_score >= policy.accept_at_least:
             status = "accepted"
@@ -438,14 +513,22 @@ class ApplicationService:
             while True:
                 n += 1
                 plan = plan_next_attempt(n, missing_terms)
+                t_start = _time.time()
                 version = self.tailor(
                     obj, resume, label=f"Optimization attempt {n} — {obj.role}",
                     emphasis=plan["emphasis"], drop_irrelevant=plan["drop_irrelevant"])
+                record(f"tailor_{n}", "succeeded",
+                       f"{plan['strategy']} ({(_time.time() - t_start) * 1000:.0f} ms)",
+                       extra={"version_id": version.id})
                 rep = score_of(version.content or "")
                 improved = rep["score"] > best_score
                 if rep["score"] >= best_score:
                     best_score = rep["score"]
                     best_version_id = version.id
+                cur_matched = {e["requirement"] for e in rep.get("matched", [])}
+                newly_matched = sorted(cur_matched - prev_matched)
+                newly_missing = sorted(prev_matched - cur_matched)
+                prev_matched = cur_matched
                 missing_terms = [e["requirement"] for e in rep.get("missing", [])
                                  if e.get("priority") == "required"][:8]
                 attempts.append({
@@ -454,13 +537,24 @@ class ApplicationService:
                     "missing": missing_terms,
                     "regressed": [e["requirement"] for e in rep.get("missing", [])
                                   if e.get("priority") == "required"],
+                    "categories": {k: v.get("score") for k, v in rep.get("categories", {}).items()},
+                    "newly_matched": newly_matched,
+                    "newly_missing": newly_missing,
+                    "lines_in": len(master_text.splitlines()),
+                    "lines_out": len((version.content or "").splitlines()),
                 })
                 scores.append(rep["score"])
+                record(f"rescore_{n}", "succeeded",
+                       f"attempt {n} scores {rep['score']:.1f} "
+                       f"({'improved' if improved else 'no gain'})",
+                       extra={"score": rep["score"], "improved": improved})
                 done, reason = should_stop(scores, policy)
                 if done:
                     stop_reason = reason
                     break
             status = final_status(initial_score, attempts, policy)
+            record("select_best", "succeeded",
+                   f"best {best_score:.1f} → " + ("accepted" if status == "accepted" else "target not reached"))
 
         if status == "accepted" and best_version_id is None and initial_score >= policy.accept_at_least:
             final_content, final_version_id, final_score = master_text, None, initial_score
@@ -477,8 +571,16 @@ class ApplicationService:
         contact = (parsed_doc.get("contact", {}) if isinstance(parsed_doc, dict) else {}) or {}
         contact_lines = (contact.get("emails", []) or []) + (contact.get("phones", []) or [])
         latex = build_latex(name, contact_lines, sections)
+        record("latex_generate", "succeeded", f"{len(latex)} chars of .tex source")
         validation = validate_latex(latex)
+        record("latex_validate", "succeeded" if validation["valid"] else "failed",
+               "valid" if validation["valid"] else "; ".join(validation["issues"]))
         comp = compile_latex(latex)
+        if comp["compiled"]:
+            record("pdf_compile", "succeeded", "pdflatex produced a valid PDF")
+        else:
+            record("pdf_compile", "skipped" if comp["status"] == "needs_latex_toolchain" else "failed",
+                   comp["status"])
         pdf_path = None
         if comp["compiled"] and comp["pdf"]:
             gen_dir = Path(self.settings.data_dir) / "generated"
@@ -487,6 +589,8 @@ class ApplicationService:
             Path(pdf_path).write_bytes(comp["pdf"])
 
         gaps = [e["requirement"] for e in score_of(final_content).get("missing", [])]
+        record("done", "succeeded",
+               f"{status} at {final_score} in {(_time.time() - _t0) * 1000:.0f} ms total")
         row = models.OptimizationRun(
             user_id=self.user.id, application_id=obj.id, resume_id=resume.id,
             policy=policy.as_dict(), initial_score=initial_score, attempts=attempts,
@@ -494,7 +598,7 @@ class ApplicationService:
             stop_reason=stop_reason or None,
             final_latex=latex,
             latex_status="valid" if validation["valid"] else "invalid:" + ";".join(validation["issues"]),
-            pdf_path=pdf_path, gaps=gaps[:20],
+            pdf_path=pdf_path, gaps=gaps[:20], stage_trace=trace,
         )
         self.db.add(row)
         self.db.commit()
@@ -507,6 +611,7 @@ class ApplicationService:
             "gaps": gaps[:20], "latex_status": row.latex_status,
             "latex_issues": validation["issues"], "pdf_ready": pdf_path is not None,
             "compile_status": comp["status"], "compile_log": comp["log"][-1500:],
+            "stage_trace": trace,
         }
 
     def run_ats(self, obj: models.Application, resume_text: str,

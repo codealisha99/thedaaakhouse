@@ -299,3 +299,4 @@ class OptimizationRun(Base, TimestampMixin):
     latex_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pdf_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     gaps: Mapped[list] = mapped_column(JSON, default=list)
+    stage_trace: Mapped[list] = mapped_column(JSON, default=list)
