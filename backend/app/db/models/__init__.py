@@ -9,10 +9,10 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text, func
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.database import Base, TimestampMixin, uuid_key as _uuid
+from app.db.database import Base
 
 APPLICATION_STATUSES = (
     "saved",
@@ -24,6 +24,8 @@ APPLICATION_STATUSES = (
     "rejected",
     "withdrawn",
 )
+
+OPPORTUNITY_KINDS = ("vacancy", "startup_prospect")
 
 
 class User(Base, TimestampMixin):
@@ -79,6 +81,9 @@ class Application(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
     job_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=True)
+    opportunity_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("opportunities.id"), nullable=True, unique=True, index=True
+    )
 
     company: Mapped[str] = mapped_column(String(512), default="")
     role: Mapped[str] = mapped_column(String(512), default="Untitled role")
@@ -289,3 +294,102 @@ class OptimizationRun(Base, TimestampMixin):
     pdf_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     gaps: Mapped[list] = mapped_column(JSON, default=list)
     stage_trace: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class Organization(Base, TimestampMixin):
+    """Canonical company identity established for a user's opportunities.
+
+    Distinct from the research-snapshot `companies` table: this row carries the
+    verified name/domain provenance for ranking and contact research. Never
+    invented — an unestablished name stays null until sourced.
+    """
+
+    __tablename__ = "organizations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    name: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    domain: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    website: Mapped[str | None] = mapped_column(Text, nullable=True)
+    location: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    sources: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+
+class Opportunity(Base, TimestampMixin):
+    """A ranked work opportunity: a vacancy backed by a listing, or a
+    startup prospect with no vacancy (job_id and description stay null —
+    never a synthetic JD)."""
+
+    __tablename__ = "opportunities"
+    __table_args__ = (
+        CheckConstraint(
+            "(kind = 'startup_prospect') OR (job_id IS NOT NULL AND title IS NOT NULL)",
+            name="ck_opportunity_vacancy_requires_listing",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    organization_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("organizations.id"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(16), default="vacancy", index=True)
+    job_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    priority_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    latest_evaluation_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("opportunity_evaluations.id"), nullable=True
+    )
+    excluded: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    exclusion_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_evidence: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class OpportunityEvaluation(Base, TimestampMixin):
+    """Versioned ranking snapshot: eligibility, fit, competition evidence and
+    the priority formula inputs — kept separate, never conflated."""
+
+    __tablename__ = "opportunity_evaluations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("opportunities.id"), nullable=False, index=True
+    )
+    evaluation_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    eligibility_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    eligibility_reasons: Mapped[list] = mapped_column(JSON, default=list)
+    eligibility_checks: Mapped[list] = mapped_column(JSON, default=list)
+    fit_classification: Mapped[str] = mapped_column(String(32), default="needs_review")
+    fit_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fit_factors: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    fit_unknowns: Mapped[list] = mapped_column(JSON, default=list)
+    competition: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    signals: Mapped[list] = mapped_column(JSON, default=list)
+    priority_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    contributions: Mapped[list] = mapped_column(JSON, default=list)
+    coverage: Mapped[dict] = mapped_column(JSON, default=dict)
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class ApplicantCountObservation(Base, TimestampMixin):
+    """One measured applicant-count signal. Source, time and measurement
+    meaning are recorded with the count: clicks are not applications, and
+    unlike platforms are never compared as equal measurements."""
+
+    __tablename__ = "applicant_count_observations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("opportunities.id"), nullable=False, index=True
+    )
+    observed_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    platform: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    meaning: Mapped[str] = mapped_column(String(128), default="unknown")
+    comparable: Mapped[bool] = mapped_column(Boolean, default=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
