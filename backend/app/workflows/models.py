@@ -70,6 +70,10 @@ class TaskRun(Base, TimestampMixin):
     idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     cancel_requested: Mapped[bool] = mapped_column(default=False)
 
+    # Authority consumed at first attempt; reused (not re-reserved) on retries.
+    grant_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    grant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
 
 class OutboxEvent(Base, TimestampMixin):
     """Queue delivery record. Pending rows are (re)published by the dispatcher,
