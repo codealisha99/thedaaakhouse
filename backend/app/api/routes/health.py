@@ -19,12 +19,18 @@ router = APIRouter(tags=["health"])
 def health() -> dict:
     s = get_settings()
     llm = get_llm_provider()
+    from app.workflows.queue import redis_configured
+
     return {
         "status": "ok",
         "app": s.app_name,
         "environment": s.environment,
         "database": "postgres" if s.is_postgres else "sqlite",
         "llm": llm.health(),
+        "tasks": {
+            "redis_url_configured": bool(s.redis_url),
+            "queue_mode": "redis/rq" if redis_configured() else "db-poll",
+        },
     }
 
 
