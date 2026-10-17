@@ -4,6 +4,13 @@
 
 Evidence-driven: tailored resumes are extractive (reordered, never rewritten), ATS scores show their methodology, and anything missing from your profile is reported — never invented.
 
+## Backend expansion plan
+
+Start with [the backend build guide](docs/backend/README.md) for the current codebase map,
+job discovery and startup outreach specification, and [a master prompt plus 10 ordered build prompts](docs/backend/build-prompts.md).
+This plan distinguishes existing functionality from proposed backend work. Some milestone
+notes below and in older docs predate the current code; see the codebase map for the reviewed snapshot.
+
 ## Architecture
 
 ```

@@ -77,18 +77,21 @@ def test_categorize_other():
 
 
 def _fake_http(monkeypatch, html_text, content_type="text/html"):
+    """Patch the network seams safe_fetch leaves for tests: host resolution
+    (validate_job_url -> safe_fetch.resolve_public_host) and page fetch
+    (jp._fetch_page, which otherwise drives the full safe fetcher)."""
+    import socket
+
     import app.analysis.jobpage as jp
 
-    class FakeResp:
-        headers = {"content-type": content_type}
-        text = html_text
-
-        def raise_for_status(self):
-            pass
-
-    monkeypatch.setattr(jp.socket, "getaddrinfo",
+    monkeypatch.setattr(socket, "getaddrinfo",
                         lambda *a, **k: [(2, 1, 6, "", ("93.184.216.34", 0))])
-    monkeypatch.setattr(jp.httpx, "get", lambda *a, **k: FakeResp())
+
+    def fake_fetch(url, timeout_s, max_bytes):
+        assert len(url) < 2048
+        return html_text, {"content-type": content_type}
+
+    monkeypatch.setattr(jp, "_fetch_page", fake_fetch)
 
 
 def test_from_url_route_end_to_end(client, auth_headers, monkeypatch):

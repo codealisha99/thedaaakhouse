@@ -43,6 +43,21 @@ class Project(BaseModel):
     evidence: list[str] = Field(default_factory=list)
 
 
+class EvidenceRef(BaseModel):
+    """Stable source reference: what was asserted, where it came from.
+
+    line indices are 1-based positions into the uploaded resume's raw text.
+    """
+
+    ev_id: str
+    kind: str  # contact|skill|experience|project|education|certification|achievement|other
+    assert_type: str = "stated"  # stated|demonstrated|claimed
+    label: str = ""
+    section: str = ""
+    line_start: int = 0
+    line_end: int = 0
+
+
 class CandidateProfile(BaseModel):
     personal_information: PersonalInformation = Field(default_factory=PersonalInformation)
     education: list[EducationEntry] = Field(default_factory=list)
@@ -51,6 +66,7 @@ class CandidateProfile(BaseModel):
     skills: list[str] = Field(default_factory=list)
     achievements: list[str] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
+    evidence: list[EvidenceRef] = Field(default_factory=list)
 
 
 # ---- API shapes ----

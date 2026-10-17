@@ -58,14 +58,27 @@ def test_evidence_strength_sections():
 def test_unknown_categories_excluded_not_zeroed():
     out = analyze_ats_v2(RESUME, "Need Python. No degree mentioned, no years mentioned.")
     assert out["categories"]["education"]["score"] is None
-    assert out["categories"]["experience"]["score"] is None  # neither side states years
+    # neither side states years AND the resume's date ranges (2020-2025,
+    # 2016-2020) are countable — experience of 9y is evidence-derived, not guessed
+    assert out["categories"]["experience"]["score"] == 100.0
+    assert "from date ranges" in out["categories"]["experience"]["detail"]
     total_w = sum(c["weight"] for c in out["categories"].values() if c["score"] is not None)
     assert abs(total_w - 1.0) < 0.01
 
 
+def test_experience_unknown_when_no_years_and_no_dates():
+    out = analyze_ats_v2("Built APIs in Python. Used Docker.",
+                         "Principal role, requires 10+ years Python.")
+    assert out["categories"]["experience"]["score"] is None
+    assert not any("Experience blocker" in b for b in out["blockers"])  # never fabricated
+    assert any("make tenures explicit" in r.lower() or "explicit" in r.lower()
+               for r in out["recommendations"])
+
+
 def test_blockers_reported_separately():
-    jd = "Principal role.\nRequirements:\n10+ years Python.\nEducation: PhD required."
+    jd = "Principal role.\nRequirements:\n15+ years Python.\nEducation: PhD required."
     out = analyze_ats_v2(RESUME, jd)
+    # resume date ranges support 10y vs 15 required — a real, countable gap
     assert any("Experience blocker" in b for b in out["blockers"])
     assert any("Education blocker" in b for b in out["blockers"])
 

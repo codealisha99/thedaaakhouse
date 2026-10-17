@@ -66,7 +66,9 @@ def test_pure_policy_units():
 
 def test_low_score_triggers_loop_and_accepts(client, auth_headers):
     rid = _upload(client, auth_headers)
-    aid = _app(client, auth_headers, STRONG_JD)
+    # 20+ years demanded so the master's date-derived 10y keeps the initial
+    # score below the trigger (step 05: date ranges are countable evidence)
+    aid = _app(client, auth_headers, STRONG_JD + " Requires 20+ years of experience.")
     r = _run(client, auth_headers, aid, rid)
     assert r.status_code == 201, r.text
     body = r.json()

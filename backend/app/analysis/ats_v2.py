@@ -13,6 +13,7 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from app.analysis.keywords import TECH_LEXICON, analyze_jd, tokenize
 
@@ -21,18 +22,27 @@ DEFAULT_WEIGHTS = {"skills": 0.35, "experience": 0.20, "projects": 0.15,
 
 ALIASES = {
     "sklearn": "scikit-learn", "scikit learn": "scikit-learn",
-    "k8s": "kubernetes", "k9s": "kubernetes",
+    "k8s": "kubernetes",
     "js": "javascript", "ts": "typescript",
-    "tf": "tensorflow", "torch": "pytorch",
+    "torch": "pytorch",
     "postgres": "postgresql", "pg": "postgresql",
-    "mongo": "mongodb", "gh actions": "github actions",
-    "gha": "github actions", "ci/cd": "ci cd",
+    "mongo": "mongodb",
+    "gh actions": "github actions",
+    "ci/cd": "ci cd",
     "nodejs": "node.js", "node": "node.js",
     "reactjs": "react", "nextjs": "next.js",
     "aws": "amazon web services", "gcp": "google cloud",
     "ml": "machine learning", "ai": "artificial intelligence",
     "nlp": "natural language processing",
 }
+# Removed from ALIASES deliberately (honesty):
+#   "k9s": k9s is a distinct product (kubectl CLI), not an abbreviation of
+#          Kubernetes; aliasing it inflated skill matches the resume does
+#          not evidence.
+#   "tf":  "tf" is too ambiguous ("TensorFlow", "Terraform", "team fortress");
+#          mapping it fabricated TensorFlow matches.
+#   "gha": same ambiguity; only the full "gh actions"/"github actions"
+#          surface is mapped.
 
 _PREF_RE = re.compile(r"(preferred|nice to have|bonus|plus|desired|pluses|optional)", re.I)
 _YEARS_RE = re.compile(r"(\d{1,2})\s*\+?\s*(?:years?|yrs?)", re.I)
@@ -89,6 +99,76 @@ def _lex(text: str) -> list[str]:
 def _years_max(text: str) -> int:
     found = [int(m.group(1)) for m in _YEARS_RE.finditer(text or "")]
     return max(found) if found else 0
+
+
+_MONTH_NUM = {m: i + 1 for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun",
+     "jul", "aug", "sep", "oct", "nov", "dec"])}
+
+# Month YYYY [– Month YYYY | YYYY | Present]
+_RES_RANGE = re.compile(
+    r"\b(" + "|".join(_MONTH_NUM) + r")[a-z]*\.?\s+(\d{4})\s*(?:-|–|—|to)\s*"
+    r"(?:(?:" + "|".join(_MONTH_NUM) + r")[a-z]*\.?\s+(\d{4})|(\d{4})|(present|current|now))\b", re.I)
+# MM/YYYY [– MM/YYYY | Present]
+_RES_MY = re.compile(r"\b(\d{1,2})/(\d{4})\s*(?:-|–|—|to)\s*(?:(\d{1,2})/(\d{4})|(present|current|now))\b")
+# [Month] YYYY – [Month] YYYY | Present  (year-only form)
+_RES_YY = re.compile(
+    r"\b(?:" + "|".join(_MONTH_NUM) + r"[a-z]*\.?\s+)?((?:19|20)\d{2})\s*(?:-|–|—|to)\s*"
+    r"(?:(?:" + "|".join(_MONTH_NUM) + r"[a-z]*\.?\s+)?((?:19|20)\d{2})|(present|current|now))\b", re.I)
+
+
+def _month_year(mn, yr) -> int:
+    return yr * 12 + (mn or 6)  # month-less years count a mid-year month
+
+
+def _date_span_years(text: str) -> float:
+    """Sum of non-overlapping employment spans derived from date ranges in
+    the text (Month YYYY, MM/YYYY, YYYY forms with 'Present' endings), in
+    years. Deterministic and honest: nothing is inferred the text does not
+    literally state."""
+    spans: list[tuple[int, int]] = []
+    now = datetime.now(timezone.utc)
+    now_month_year = now.year * 12 + now.month
+
+    def months(mn, yr):
+        try:
+            return _month_year(mn, int(yr))
+        except (TypeError, ValueError):
+            return None
+
+    for text_pat in ((text or ""),):
+        for m in _RES_RANGE.finditer(text_pat):
+            start = months(_MONTH_NUM.get(str(m.group(1)).lower()[:3]), m.group(2))
+            end = (months(_MONTH_NUM.get(str(m.group(3)).lower()[:3]), m.group(4))
+                   if m.group(3) and m.group(4) else
+                   (months(None, m.group(4)) if m.group(4) else now_month_year))
+            if start is not None and end is not None and end >= start:
+                spans.append((start, end))
+        for m in _RES_MY.finditer(text_pat):
+            start = months(int(m.group(1)), m.group(2))
+            end = (months(int(m.group(3)), m.group(4))
+                   if m.group(3) and m.group(4) else now_month_year)
+            if start is not None and end is not None and end >= start:
+                spans.append((start, end))
+        for m in _RES_YY.finditer(text_pat):
+            start = months(None, m.group(1))
+            end = months(None, m.group(2)) if m.group(2) else now_month_year
+            if start is not None and end is not None and end >= start:
+                spans.append((start, end))
+
+    if not spans:
+        return 0.0
+    spans.sort()
+    total = 0
+    cur_s, cur_e = spans[0]
+    for s, e in spans[1:]:
+        if s > cur_e:
+            total += cur_e - cur_s
+            cur_s, cur_e = s, e
+        else:
+            cur_e = max(cur_e, e)
+    total += cur_e - cur_s
+    return round(max(0, total) / 12.0, 1)
 
 
 @dataclass
@@ -184,14 +264,29 @@ def analyze_ats_v2(resume_text: str, jd_text: str, parsed_doc: dict | None = Non
     else:
         cats["skills"] = {"score": None,
                           "detail": "unknown: JD states no technical requirements"}
-    # experience
+    # experience: years are used only when countably evidenced — stated
+    # ("n years") or derivable from the resume's own date ranges. When the
+    # resume evidences neither, the category stays unknown (no guessed score,
+    # no fabricated blocker).
     req_years = jd.get("experience_years") or _years_max(jd_text)
-    have_years = _years_max(resume_text)
-    if req_years:
+    stated_years = _years_max(resume_text)
+    date_years = _date_span_years(resume_text)
+    if stated_years:
+        have_years, years_src = stated_years, "stated"
+    elif date_years:
+        have_years, years_src = date_years, "from date ranges"
+    else:
+        have_years, years_src = None, "none"
+    if req_years and have_years is not None:
         cats["experience"] = {"score": round(min(100.0, 100 * have_years / req_years), 1),
-                              "detail": f"requires {req_years}y, resume states {have_years}y"}
-    elif have_years:
-        cats["experience"] = {"score": 100.0, "detail": f"no JD requirement; resume states {have_years}y"}
+                              "detail": f"requires {req_years}y, resume shows {have_years}y ({years_src})"}
+    elif req_years:
+        cats["experience"] = {"score": None,
+                              "detail": (f"unknown: JD requires {req_years}y but the resume has no stated "
+                                         "years and no countable date ranges — score never guessed")}
+    elif have_years is not None:
+        cats["experience"] = {"score": 100.0,
+                              "detail": f"no JD requirement; resume shows {have_years}y ({years_src})"}
     else:
         cats["experience"] = {"score": None, "detail": "unknown: neither JD nor resume states years"}
     # projects: practical evidence share
@@ -237,9 +332,9 @@ def analyze_ats_v2(resume_text: str, jd_text: str, parsed_doc: dict | None = Non
         cats[k]["contribution"] = round(cats[k]["score"] * weights[k], 1)
 
     blockers = []
-    if req_years and req_years - have_years >= 5:
-        stated = f"{have_years}y" if have_years else "no years"
-        blockers.append(f"Experience blocker: requires {req_years}y, resume states {stated}.")
+    if req_years and have_years is not None and req_years - have_years >= 5:
+        stated = f"{have_years}y ({years_src})"
+        blockers.append(f"Experience blocker: requires {req_years}y, resume shows {stated}.")
     if edu_reqs and cats["education"]["score"] == 0:
         blockers.append(f"Education blocker: JD asks {', '.join(edu_reqs)}, resume shows none.")
     if cats["parse"]["score"] == 0 and parsed_doc is not None:
@@ -253,7 +348,9 @@ def analyze_ats_v2(resume_text: str, jd_text: str, parsed_doc: dict | None = Non
         recs.append(f"Documented but not proven: '{e['requirement']}' appears only in a skills list — move it into a project bullet with evidence.")
     for w in (parsed_doc or {}).get("warnings", []) or []:
         recs.append(f"Parseability: {w}.")
-    if cats["experience"]["score"] is not None and cats["experience"]["score"] < 100 and req_years:
+    if cats["experience"]["score"] is None and req_years:
+        recs.append(f"JD expects {req_years}y experience; make tenures explicit (start/end dates or stated years) so it can be evaluated — the score is left unknown, not guessed.")
+    elif cats["experience"]["score"] is not None and cats["experience"]["score"] < 100 and req_years:
         recs.append("Make tenures explicit (start/end dates) so experience is countable.")
     if not recs:
         recs.append("Strong alignment across all evaluable categories.")

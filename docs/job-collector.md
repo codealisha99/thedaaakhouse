@@ -1,5 +1,9 @@
 # Job Collector — architecture (DESIGN ONLY, not implemented)
 
+> This document describes the optional browser collector only. Its auto-apply exclusions
+> apply to that component. The broader discovery, submission and outreach roadmap is
+> defined in [the backend specification](backend/specification.md).
+
 ## Intended workflow
 
 ```

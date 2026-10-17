@@ -81,11 +81,14 @@ class ResumeService:
         self.settings = get_settings()
 
     def _scope(self, query):
-        if self.user is not None:
-            query = query.filter(models.Resume.user_id == self.user.id)
+        # Strict: with no authenticated user nothing is visible — ownerless
+        # (null user_id) legacy rows are quarantined from API access entirely.
+        query = query.filter(models.Resume.user_id == self.user.id)
         return query
 
     def save_upload(self, data: bytes, filename: str, content_type: str) -> models.Resume:
+        if self.user is None:
+            raise ValueError("authentication required")
         if len(data) > self.settings.max_upload_bytes:
             raise ValueError(f"file exceeds {self.settings.max_upload_mb} MB limit")
         ext = "." + (filename.rsplit(".", 1)[-1].lower() if "." in filename else "")
@@ -112,7 +115,7 @@ class ResumeService:
         raw_text = clean_text(parsed["text"] or _extract_text(data, content_type)).text
         profile: CandidateProfile = get_resume_parser().parse(raw_text, filename=safe_name)
         obj = self.repo.create(
-            user_id=self.user.id if self.user else None,
+            user_id=self.user.id,
             filename=safe_name,
             content_type=content_type,
             file_path=str(dest),
@@ -122,13 +125,40 @@ class ResumeService:
             parsed_doc={"sections": parsed["sections"], "contact": parsed["contact"],
                         "warnings": parsed["warnings"]},
         )
+        self._store_evidence(obj, raw_text)
         return obj
 
+    def _store_evidence(self, resume: models.Resume, raw_text: str) -> None:
+        """Persist every extracted candidate fact with its source reference so
+        evidence is inspectable and confirmable downstream."""
+        from app.ingestion.evidence_extract import extract_evidence
+
+        for item in extract_evidence(raw_text[:50_000]):
+            self.db.add(models.CandidateEvidence(
+                user_id=resume.user_id,
+                resume_id=resume.id,
+                ev_ref=item["ev_id"], kind=item["kind"],
+                assert_type=item["assert_type"], label=item["label"],
+                fact=item["fact"], source_section=item["section"],
+                line_start=item["line_start"], line_end=item["line_end"],
+                source_text=item["source_text"], status="extracted",
+            ))
+        self.db.commit()
+
+    def ensure_evidence(self, resume: models.Resume) -> None:
+        """Backfill evidence rows for resume uploads created before step 05."""
+        exists = self.db.query(models.CandidateEvidence).filter_by(
+            resume_id=resume.id).count()
+        if not exists and (resume.raw_text or "").strip():
+            self._store_evidence(resume, resume.raw_text)
+
     def get(self, resume_id: str) -> models.Resume | None:
-        obj = self.repo.get(resume_id)
-        if obj is None:
+        """Strict ownership: other users' and ownerless (null user_id) legacy
+        rows are invisible. Never expose ownerless records automatically."""
+        if self.user is None:
             return None
-        if self.user and obj.user_id not in (None, self.user.id):
+        obj = self.repo.get(resume_id)
+        if obj is None or obj.user_id != self.user.id:
             return None
         return obj
 
@@ -143,18 +173,22 @@ class ResumeService:
         return self._scope(q).scalar() or 0
 
     def list_versions(self, application_id: str | None = None) -> list[models.ResumeVersion]:
-        q = self.db.query(models.ResumeVersion).order_by(models.ResumeVersion.created_at.desc())
-        if self.user is not None:
-            q = q.filter(models.ResumeVersion.user_id == self.user.id)
+        if self.user is None:
+            return []
+        q = (
+            self.db.query(models.ResumeVersion)
+            .filter(models.ResumeVersion.user_id == self.user.id)
+            .order_by(models.ResumeVersion.created_at.desc())
+        )
         if application_id:
             q = q.filter(models.ResumeVersion.application_id == application_id)
         return q.all()
 
     def get_version(self, version_id: str) -> models.ResumeVersion | None:
-        obj = self.db.get(models.ResumeVersion, version_id)
-        if obj is None:
+        if self.user is None:
             return None
-        if self.user and obj.user_id != self.user.id:
+        obj = self.db.get(models.ResumeVersion, version_id)
+        if obj is None or obj.user_id != self.user.id:
             return None
         return obj
 
@@ -167,11 +201,13 @@ class JobService:
 
     def create(self, title: str, company_name: str | None, source_url: str | None,
                location: str | None, raw_text: str) -> models.Job:
+        if self.user is None:
+            raise ValueError("authentication required")
         cleaned = clean_text(raw_text).text
         if not cleaned.strip():
             raise ValueError("job description text is empty")
         return self.repo.create(
-            user_id=self.user.id if self.user else None,
+            user_id=self.user.id,
             title=title or "Untitled role",
             company_name=company_name,
             source_url=source_url,
@@ -181,25 +217,33 @@ class JobService:
         )
 
     def get(self, job_id: str) -> models.Job | None:
-        obj = self.repo.get(job_id)
-        if obj is None:
+        """Strict ownership: other users' and ownerless (null user_id) legacy
+        rows are invisible. Never expose ownerless records automatically."""
+        if self.user is None:
             return None
-        if self.user and obj.user_id not in (None, self.user.id):
+        obj = self.repo.get(job_id)
+        if obj is None or obj.user_id != self.user.id:
             return None
         return obj
 
     def list(self, limit: int = 50, offset: int = 0) -> list[models.Job]:
-        q = self.db.query(models.Job).order_by(models.Job.created_at.desc())
-        if self.user is not None:
-            q = q.filter(models.Job.user_id == self.user.id)
+        if self.user is None:
+            return []
+        q = (
+            self.db.query(models.Job)
+            .filter(models.Job.user_id == self.user.id)
+            .order_by(models.Job.created_at.desc())
+        )
         return q.offset(offset).limit(limit).all()
 
     def count(self) -> int:
+        if self.user is None:
+            return 0
         from sqlalchemy import func as _func
 
-        q = self.db.query(_func.count(models.Job.id))
-        if self.user is not None:
-            q = q.filter(models.Job.user_id == self.user.id)
+        q = self.db.query(_func.count(models.Job.id)).filter(
+            models.Job.user_id == self.user.id
+        )
         return q.scalar() or 0
 
 
@@ -217,10 +261,31 @@ class ApplicationService:
             return None
         return obj
 
+    def _validate_job_reference(self, job_id: str) -> None:
+        """A job linked to an application must belong to the same user.
+        Cross-user and ownerless (null user_id) jobs are rejected, not adopted."""
+        if not job_id:
+            return
+        job = self.db.get(models.Job, job_id)
+        if job is None or job.user_id != self.user.id:
+            raise ValueError("job not found")
+
+    def _validate_version_reference(self, version_id: str | None) -> None:
+        if not version_id:
+            return
+        version = self.db.get(models.ResumeVersion, version_id)
+        if version is None or version.user_id != self.user.id:
+            raise ValueError("resume version not found")
+
     def create(self, **fields) -> models.Application:
         status = fields.get("status") or "saved"
         if status not in APPLICATION_STATUSES:
             raise ValueError(f"invalid status '{status}'. Choose from: {', '.join(APPLICATION_STATUSES)}")
+        job_id = fields.get("job_id")
+        if job_id:
+            self._validate_job_reference(job_id)
+        else:
+            fields.pop("job_id", None)  # reject empty-string references
         fields.setdefault("status_history", [{"to": status, "at": _now_iso()}])
         obj = models.Application(user_id=self.user.id, **fields)
         self.db.add(obj)
@@ -274,6 +339,8 @@ class ApplicationService:
         obj = self.get(app_id)
         if obj is None:
             return None
+        if "resume_version_id" in fields and fields["resume_version_id"]:
+            self._validate_version_reference(fields["resume_version_id"])
         fields = {k: v for k, v in fields.items() if v is not None}
         if "status" in fields:
             if fields["status"] not in APPLICATION_STATUSES:
@@ -344,12 +411,14 @@ class ApplicationService:
 
     def tailor(self, obj: models.Application, resume: models.Resume, label: str | None = None,
                emphasis: list[str] | None = None, drop_irrelevant: bool = False) -> models.ResumeVersion:
-        if resume.user_id not in (None, self.user.id):
+        if resume.user_id != self.user.id:
             raise ValueError("resume not found")
         if not obj.raw_jd.strip():
             raise ValueError("this application has no job description to tailor against")
         result = tailor_resume(resume.raw_text, obj.raw_jd,
                                emphasis=emphasis, drop_irrelevant=drop_irrelevant)
+        import hashlib as _hashlib
+
         version = models.ResumeVersion(
             user_id=self.user.id,
             resume_id=resume.id,
@@ -359,6 +428,7 @@ class ApplicationService:
             changes=result["changes"],
             missing_keywords=result["missing_keywords"],
             ats_score=result["ats_before"],
+            master_sha256=_hashlib.sha256((resume.raw_text or "").encode()).hexdigest()[:16],
         )
         self.db.add(version)
         self.db.commit()
@@ -412,7 +482,13 @@ class ApplicationService:
         parsed_doc = resume.parsed_doc or {}
         cfg = AtsConfig()
 
+        import hashlib as _hashlib
         import time as _time
+
+        jd_sha256 = _hashlib.sha256(obj.raw_jd.encode()).hexdigest()[:16]
+        resume_sha256 = _hashlib.sha256(master_text.encode()).hexdigest()[:16]
+        config_hash = _hashlib.sha256(
+            (str(cfg.weights) + str(sorted(policy.as_dict().items()))).encode()).hexdigest()[:16]
 
         trace: list[dict] = []
         _order = [0]
@@ -433,7 +509,8 @@ class ApplicationService:
 
         try:
             return self._run_optimization_traced(
-                obj, resume, master_text, parsed_doc, cfg, policy, record, score_of, trace, _t0)
+                obj, resume, master_text, parsed_doc, cfg, policy, record, score_of, trace, _t0,
+                jd_sha256, resume_sha256, config_hash)
         except Exception as e:
             # A failed stage stays failed: persist the trace, then re-raise.
             fail_row = models.OptimizationRun(
@@ -441,6 +518,7 @@ class ApplicationService:
                 policy=policy.as_dict(), initial_score=0.0, attempts=[],
                 status="failed",
                 stop_reason=f"{type(e).__name__}: {e}",
+                jd_sha256=jd_sha256, resume_sha256=resume_sha256, config_hash=config_hash,
                 stage_trace=trace + [{"order": _order[0] + 1, "stage": "failed",
                                       "status": "failed", "summary": f"{type(e).__name__}: {e}",
                                       "source": "real"}],
@@ -450,7 +528,8 @@ class ApplicationService:
             raise
 
     def _run_optimization_traced(self, obj, resume, master_text: str, parsed_doc: dict,
-                                 cfg, policy, record, score_of, trace: list, _t0: float) -> dict:
+                                 cfg, policy, record, score_of, trace: list, _t0: float,
+                                 jd_sha256: str, resume_sha256: str, config_hash: str) -> dict:
         import time as _time
 
         from app.analysis.keywords import analyze_jd
@@ -461,6 +540,10 @@ class ApplicationService:
 
         record("validate_input", "succeeded",
                f"resume {len(master_text)} chars, JD {len(obj.raw_jd)} chars")
+        record("provenance", "succeeded",
+               f"jd {jd_sha256} / resume {resume_sha256} / config {config_hash}",
+               extra={"jd_sha256": jd_sha256, "resume_sha256": resume_sha256,
+                      "config_hash": config_hash})
         jd = analyze_jd(obj.raw_jd)
         record("analyze_jd", "succeeded",
                f"{len(jd.get('skills', []))} skills, "
@@ -517,6 +600,20 @@ class ApplicationService:
                 version = self.tailor(
                     obj, resume, label=f"Optimization attempt {n} — {obj.role}",
                     emphasis=plan["emphasis"], drop_irrelevant=plan["drop_irrelevant"])
+                # Truthfulness gate: every tailored line must be supported by
+                # the master resume. The extraction pipeline only reorders
+                # master lines, so a gate failure is a bug surfaced honestly.
+                from app.resume.validation import gate_edits
+
+                gate = gate_edits(master_text, version.content or "")
+                if gate["rejected"]:
+                    reasons = "; ".join(gate["rejected"][0]["reasons"][:3])
+                    record(f"claim_gate_{n}", "failed", f"tailored content not fully supported: {reasons}",
+                           extra={"unsupported": [x["reasons"] for x in gate["rejected"]][:3]})
+                    raise ValueError(
+                        f"tailoring produced unsupported content and was rejected: {reasons}")
+                record(f"claim_gate_{n}", "succeeded",
+                       f"{len(gate['accepted'])} lines verified against master evidence")
                 record(f"tailor_{n}", "succeeded",
                        f"{plan['strategy']} ({(_time.time() - t_start) * 1000:.0f} ms)",
                        extra={"version_id": version.id})
@@ -588,6 +685,24 @@ class ApplicationService:
             pdf_path = str(gen_dir / f"optimized-{obj.id[:8]}.pdf")
             Path(pdf_path).write_bytes(comp["pdf"])
 
+        from app.resume.pdf import validate_pdf_export
+
+        export_validation = None
+        final_pdf_sha256 = None
+        if comp["compiled"] and comp["pdf"]:
+            export_validation = validate_pdf_export(comp["pdf"], final_content)
+            record("export_reparse", "succeeded" if export_validation["readable"] else "failed",
+                   (f"exported PDF re-reads at {export_validation['line_coverage']:.0%} line coverage"
+                    if export_validation["readable"] else
+                    "exported PDF failed readability: " + export_validation.get("error", "coverage too low")),
+                   extra=export_validation)
+            import hashlib as _hashlib2
+            final_pdf_sha256 = _hashlib2.sha256(comp["pdf"]).hexdigest()[:16]
+        else:
+            record("export_reparse", "skipped", "no compiled PDF to validate")
+        if export_validation is not None and not export_validation["readable"]:
+            raise ValueError("exported PDF failed readability validation — export withheld")
+
         gaps = [e["requirement"] for e in score_of(final_content).get("missing", [])]
         record("done", "succeeded",
                f"{status} at {final_score} in {(_time.time() - _t0) * 1000:.0f} ms total")
@@ -599,6 +714,8 @@ class ApplicationService:
             final_latex=latex,
             latex_status="valid" if validation["valid"] else "invalid:" + ";".join(validation["issues"]),
             pdf_path=pdf_path, gaps=gaps[:20], stage_trace=trace,
+            jd_sha256=jd_sha256, resume_sha256=resume_sha256, config_hash=config_hash,
+            export_validation=export_validation, final_pdf_sha256=final_pdf_sha256,
         )
         self.db.add(row)
         self.db.commit()
@@ -612,6 +729,10 @@ class ApplicationService:
             "latex_issues": validation["issues"], "pdf_ready": pdf_path is not None,
             "compile_status": comp["status"], "compile_log": comp["log"][-1500:],
             "stage_trace": trace,
+            "jd_sha256": row.jd_sha256, "resume_sha256": row.resume_sha256,
+            "config_hash": row.config_hash,
+            "export_validation": row.export_validation,
+            "final_pdf_sha256": row.final_pdf_sha256,
         }
 
     def run_ats(self, obj: models.Application, resume_text: str,
@@ -770,7 +891,7 @@ class LearningService:
         resume_text = ""
         if resume_id:
             r = self.db.get(models.Resume, resume_id)
-            if r is None or r.user_id not in (None, self.user.id):
+            if r is None or r.user_id != self.user.id:
                 raise LookupError("resume not found")
             resume_text = r.raw_text
         elif app.resume_version_id:
@@ -879,7 +1000,7 @@ class ArenaService:
                 resume_text = (v.content if v else "") or ""
         if resume_id:
             r = self.db.get(models.Resume, resume_id)
-            if r is None or r.user_id not in (None, self.user.id):
+            if r is None or r.user_id != self.user.id:
                 raise LookupError("resume not found")
             resume_text = r.raw_text
         try:
@@ -1029,7 +1150,7 @@ class ProfileService:
         from app.analysis.keywords import extract_skills, tokenize
 
         r = self.db.get(models.Resume, resume_id)
-        if r is None or r.user_id not in (None, self.user.id):
+        if r is None or r.user_id != self.user.id:
             raise LookupError("resume not found")
         p = self.get_or_create()
         text = r.raw_text or ""
