@@ -58,9 +58,19 @@ fixes:
     `authorization_revoked` (no silent side effect), matching the SQLite
     suite.
   - a cancelled queued task is never executed by racing workers.
+- **`tests/test_workflows_redis.py` (3 tests, skipped without
+  `TEST_REDIS_URL`)** runs the real delivery path — `queue.publish` →
+  `rq.Queue` → in-process `rq.SimpleWorker` → `executor.perform_task` —
+  against a disposable Redis:
+  - a queued task reaches the RQ queue through the outbox dispatcher and
+    completes exactly once on a real worker pass;
+  - a duplicate RQ job for the same task never re-runs completed work;
+  - a Redis outage keeps the outbox row pending (work cannot be lost), and
+    the healthy dispatcher later publishes and the worker completes the task.
 - Verification run: `TEST_DATABASE_URL=... pytest -q
-  tests/test_workflows_postgres.py` → 8 passed; full SQLite suite
-  (`pytest -q tests/`) → 300 passed, 8 skipped (the PG module, by design).
+  tests/test_workflows_postgres.py` → 8 passed; `TEST_REDIS_URL=...
+  pytest -q tests/test_workflows_redis.py` → 3 passed; full SQLite suite
+  (`pytest -q tests/`) → 300 passed, 11 skipped (the opt-in modules, by design).
 
 ### Honest limits
 
