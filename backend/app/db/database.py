@@ -5,16 +5,32 @@ on SQLite (vector fields stored as JSON) so tests/dev work without Docker.
 """
 
 from collections.abc import Generator
+import uuid
+from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy import DateTime, create_engine, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from app.core.config import get_settings
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class TimestampMixin:
+    """Shared server-default timestamps; imported by every model module."""
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+def uuid_key() -> str:
+    """Shared primary-key generator so model modules avoid circular imports."""
+    return str(uuid.uuid4())
 
 
 def _connect_args(url: str) -> dict:
@@ -39,8 +55,9 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def init_db() -> None:
-    # Import models so metadata is populated, then create tables.
+    # Import every model module so Base.metadata is fully populated.
     import app.db.models  # noqa: F401
+    import app.workflows.models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 

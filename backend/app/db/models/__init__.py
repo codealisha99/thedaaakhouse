@@ -12,7 +12,7 @@ from datetime import datetime
 from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.database import Base
+from app.db.database import Base, TimestampMixin, uuid_key as _uuid
 
 APPLICATION_STATUSES = (
     "saved",
@@ -24,17 +24,6 @@ APPLICATION_STATUSES = (
     "rejected",
     "withdrawn",
 )
-
-
-def _uuid() -> str:
-    return str(uuid.uuid4())
-
-
-class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
 
 
 class User(Base, TimestampMixin):
