@@ -9,10 +9,10 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text, func
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.database import Base
+from app.db.database import Base, TimestampMixin, uuid_key as _uuid
 
 APPLICATION_STATUSES = (
     "saved",
@@ -25,16 +25,7 @@ APPLICATION_STATUSES = (
     "withdrawn",
 )
 
-
-def _uuid() -> str:
-    return str(uuid.uuid4())
-
-
-class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
+OPPORTUNITY_KINDS = ("vacancy", "startup_prospect")
 
 
 class User(Base, TimestampMixin):
@@ -90,6 +81,9 @@ class Application(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
     job_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=True)
+    opportunity_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("opportunities.id"), nullable=True, unique=True, index=True
+    )
 
     company: Mapped[str] = mapped_column(String(512), default="")
     role: Mapped[str] = mapped_column(String(512), default="Untitled role")
@@ -131,6 +125,9 @@ class ResumeVersion(Base, TimestampMixin):
     missing_keywords: Mapped[list] = mapped_column(JSON, default=list)
     ats_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     edited_manually: Mapped[bool] = mapped_column(default=False)
+    # sha256[:16] of the master resume text at derivation time — proves the
+    # version derives from a specific master snapshot.
+    master_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class ATSAnalysis(Base, TimestampMixin):
@@ -146,6 +143,9 @@ class ATSAnalysis(Base, TimestampMixin):
     )
     score: Mapped[float] = mapped_column(Float, default=0.0)
     breakdown: Mapped[dict] = mapped_column(JSON, default=dict)
+    # True once the resume version this analysis was computed against was
+    # manually edited afterwards: the numbers are no longer about that text.
+    stale: Mapped[bool] = mapped_column(default=False)
 
 
 class InterviewPrep(Base, TimestampMixin):
@@ -298,5 +298,156 @@ class OptimizationRun(Base, TimestampMixin):
     final_latex: Mapped[str | None] = mapped_column(Text, nullable=True)
     latex_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pdf_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # Which exact inputs produced the run — provenance for reproducibility.
+    jd_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resume_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    config_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Reparse of the exported PDF vs the validated content (readability check).
+    export_validation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    final_pdf_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # True once the run was based on a resume version that was later
+    # manually edited: the run's outcome describes a superseded document.
+    invalidated: Mapped[bool] = mapped_column(default=False)
     gaps: Mapped[list] = mapped_column(JSON, default=list)
     stage_trace: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class Organization(Base, TimestampMixin):
+    """Canonical company identity established for a user's opportunities.
+
+    Distinct from the research-snapshot `companies` table: this row carries the
+    verified name/domain provenance for ranking and contact research. Never
+    invented — an unestablished name stays null until sourced.
+    """
+
+    __tablename__ = "organizations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    name: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    domain: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    website: Mapped[str | None] = mapped_column(Text, nullable=True)
+    location: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    sources: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+
+class Opportunity(Base, TimestampMixin):
+    """A ranked work opportunity: a vacancy backed by a listing, or a
+    startup prospect with no vacancy (job_id and description stay null —
+    never a synthetic JD)."""
+
+    __tablename__ = "opportunities"
+    __table_args__ = (
+        CheckConstraint(
+            "(kind = 'startup_prospect') OR (job_id IS NOT NULL AND title IS NOT NULL)",
+            name="ck_opportunity_vacancy_requires_listing",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    organization_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("organizations.id"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(16), default="vacancy", index=True)
+    job_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    priority_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    latest_evaluation_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("opportunity_evaluations.id"), nullable=True
+    )
+    # Filterable projection of the latest evaluation (kept in sync by the
+    # opportunity service; the versioned snapshot stays authoritative).
+    eligibility_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    fit_classification: Mapped[str] = mapped_column(String(32), default="needs_review")
+    fit_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    competition_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    competition_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    competition_comparable: Mapped[bool] = mapped_column(Boolean, default=False)
+    competition_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    competition_platform: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    competition_meaning: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    potentially_overlooked: Mapped[bool] = mapped_column(Boolean, default=False)
+    excluded: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    exclusion_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_evidence: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class OpportunityEvaluation(Base, TimestampMixin):
+    """Versioned ranking snapshot: eligibility, fit, competition evidence and
+    the priority formula inputs — kept separate, never conflated."""
+
+    __tablename__ = "opportunity_evaluations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("opportunities.id"), nullable=False, index=True
+    )
+    evaluation_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    eligibility_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    eligibility_reasons: Mapped[list] = mapped_column(JSON, default=list)
+    eligibility_checks: Mapped[list] = mapped_column(JSON, default=list)
+    fit_classification: Mapped[str] = mapped_column(String(32), default="needs_review")
+    fit_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fit_factors: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    fit_conflicts: Mapped[list] = mapped_column(JSON, default=list)
+    fit_unknowns: Mapped[list] = mapped_column(JSON, default=list)
+    competition: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    signals: Mapped[list] = mapped_column(JSON, default=list)
+    priority_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    contributions: Mapped[list] = mapped_column(JSON, default=list)
+    coverage: Mapped[dict] = mapped_column(JSON, default=dict)
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class ApplicantCountObservation(Base, TimestampMixin):
+    """One measured applicant-count signal. Source, time and measurement
+    meaning are recorded with the count: clicks are not applications, and
+    unlike platforms are never compared as equal measurements."""
+
+    __tablename__ = "applicant_count_observations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("opportunities.id"), nullable=False, index=True
+    )
+    observed_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    platform: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    meaning: Mapped[str] = mapped_column(String(128), default="unknown")
+    comparable: Mapped[bool] = mapped_column(Boolean, default=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class CandidateEvidence(Base, TimestampMixin):
+    """One validated candidate fact with a stable source reference.
+
+    Every row cites a resume line span (`source_text`, `line_start/end`) and
+    an `ev_ref` id stable for that resume text. `assert_type` keeps
+    demonstrated (found inside experience/projects bullets) apart from
+    claimed (skills list only) and stated (verbatim facts). `status` carries
+    the user's confirmation state: extracted -> confirmed|rejected. Rejected
+    facts are excluded from downstream tailoring evidence.
+    """
+
+    __tablename__ = "candidate_evidence"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
+    resume_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("resumes.id"), nullable=True, index=True)
+    ev_ref: Mapped[str] = mapped_column(String(32), index=True)
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    assert_type: Mapped[str] = mapped_column(String(16), default="stated")
+    label: Mapped[str] = mapped_column(String(512), default="")
+    fact: Mapped[dict] = mapped_column(JSON, default=dict)
+    source_section: Mapped[str] = mapped_column(String(64), default="")
+    line_start: Mapped[int] = mapped_column(default=0)
+    line_end: Mapped[int] = mapped_column(default=0)
+    source_text: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(16), default="extracted")  # extracted|confirmed|rejected
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

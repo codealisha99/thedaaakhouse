@@ -206,9 +206,6 @@ def match_report(app_id: str, resume_version_id: str | None = None,
 
 
 @router.post("/{app_id}/tailor", status_code=201)
-
-
-@router.post("/{app_id}/tailor", status_code=201)
 def tailor_resume(app_id: str, payload: TailorIn, db: Session = Depends(get_db),
                   user: models.User = Depends(get_current_user)):
     svc = _svc(db, user)
@@ -377,6 +374,13 @@ def update_version(version_id: str, payload: dict, db: Session = Depends(get_db)
         if content != v.content:
             v.content = content[:100_000]
             v.edited_manually = True
+            # The manual edit supersedes everything derived from the edited
+            # text: analyses for this version are stale, and optimization runs
+            # whose final version was edited describe a superseded document.
+            db.query(models.ATSAnalysis).filter_by(
+                user_id=user.id, resume_version_id=v.id).update({"stale": True})
+            db.query(models.OptimizationRun).filter_by(
+                user_id=user.id, final_version_id=v.id).update({"invalidated": True})
     db.commit()
     db.refresh(v)
     out = _version_out(v)
@@ -417,15 +421,23 @@ def compare_version(version_id: str, db: Session = Depends(get_db),
 @router.get("/versions/{version_id}/pdf")
 def version_pdf(version_id: str, db: Session = Depends(get_db),
                 user: models.User = Depends(get_current_user)):
-    """Export a tailored version as PDF (plain-text layout, ATS-safe fonts)."""
+    """Export a tailored version as PDF (plain-text layout, ATS-safe fonts).
+
+    The export is reparsed and validated for readability before it is sent:
+    an unreadable PDF is never returned, it becomes a 500 instead."""
     from fastapi.responses import Response
 
-    from app.resume.pdf import render_resume_pdf
+    from app.resume.pdf import render_resume_pdf, validate_pdf_export
 
     v = ResumeService(db, user).get_version(version_id)
     if v is None:
         raise HTTPException(status_code=404, detail="resume version not found")
     pdf = render_resume_pdf(v.label, v.content or "")
+    validation = validate_pdf_export(pdf, v.content or "")
+    if not validation["readable"]:
+        raise HTTPException(status_code=500, detail=(
+            "exported PDF failed readability validation; export withheld: "
+            f"{validation.get('error', 'line coverage too low')}"))
     safe = "".join(c for c in v.label if c.isalnum() or c in " _-").strip()[:60] or "resume"
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{safe}.pdf"'})

@@ -63,9 +63,41 @@ class Settings(BaseSettings):
     embedding_provider: str = "local"
     embedding_dim: int = 384
 
+    # Startup-search adapter for opportunity discovery ("none" = user-supplied
+    # URLs only). Providers register in app/opportunities/providers.py.
+    startup_search_provider: str = "none"
+
+    # ---- Safe fetcher (backend/app/ingestion/safe_fetch.py) ----
+    # One guard for every user-supplied URL (job import, company research).
+    # Schemes fixed to http/https; ports/redirects/size bounded here.
+    fetch_timeout_s: float = 20.0
+    fetch_max_bytes: int = 1_000_000
+    fetch_max_redirects: int = 5
+    fetch_allowed_ports: str = "80,443"
+    fetch_user_agent: str = "thedaaakhouse/0.3 (+safe-fetch)"
+
+    # ---- Durable tasks (backend/app/workflows) ----
+    # Redis/RQ is only the delivery bus; PostgreSQL task state is authoritative.
+    # Empty => no Redis: the poll-mode worker + dispatcher still run everything.
+    redis_url: str = ""
+    redis_queue_name: str = "tasks"
+    wf_max_attempts: int = 5
+    wf_retry_base_s: float = 1.0
+    wf_retry_jitter: float = 0.25  # 0..1 fraction added to deterministic backoff
+    wf_lease_seconds: int = 300
+    wf_dispatcher_interval_s: float = 1.0
+    wf_poll_interval_s: float = 1.0
+    wf_shutdown_grace_s: int = 30
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def fetch_allowed_port_set(self) -> frozenset[int]:
+        return frozenset(
+            int(p.strip()) for p in self.fetch_allowed_ports.split(",") if p.strip()
+        )
 
     @property
     def is_postgres(self) -> bool:

@@ -6,16 +6,18 @@
 """
 
 import html
-import ipaddress
 import json
 import re
-import socket
-from urllib.parse import urlparse
-
-import httpx
 
 from app.analysis.keywords import analyze_jd
 from app.ingestion.jd_parser import clean_text
+from app.ingestion.safe_fetch import (
+    FetchPolicy,
+    SafeFetchError,
+    safe_fetch,
+    resolve_public_host,
+    validate_http_url,
+)
 
 _FETCH_TIMEOUT_S = 15.0
 _MAX_BYTES = 1_000_000
@@ -33,29 +35,20 @@ _ROLE_RULES: list[tuple[str, list[str]]] = [
 
 
 def validate_job_url(url: str) -> str:
-    """Return normalized URL or raise ValueError."""
+    """Return normalized URL (or raise ValueError). Fail-fast checks:
+    scheme/port/credentials plus DNS resolution to public addresses. The
+    safe fetcher re-validates at connect time and on every redirect hop."""
+    from urllib.parse import urlparse
+
+    from app.core.config import get_settings
+
     url = (url or "").strip()
     try:
-        parts = urlparse(url)
-    except Exception as e:
-        raise ValueError(f"invalid URL: {e}") from e
-    if parts.scheme not in ("http", "https"):
-        raise ValueError("URL must start with http:// or https://")
-    host = (parts.hostname or "").lower()
-    if not host:
-        raise ValueError("URL has no host")
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror as e:
-        raise ValueError(f"could not resolve host '{host}': {e}") from e
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            continue
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
-            raise ValueError(f"refusing to fetch non-public host '{host}'")
-    return url
+        validated = validate_http_url(url, allowed_ports=get_settings().fetch_allowed_port_set)
+        resolve_public_host(urlparse(validated).hostname or "")
+    except SafeFetchError as e:
+        raise ValueError(str(e)) from e
+    return validated
 
 
 def _strip_html(raw: str) -> str:
@@ -142,22 +135,40 @@ def extract_job_posting(html_text: str, url: str) -> dict:
     }
 
 
+def _fetch_page(url: str, timeout_s: float, max_bytes: int) -> tuple[str, dict[str, str]]:
+    """Fetch page text through the single safe fetcher.
+
+    Module-level so tests can monkeypatch the whole network layer; production
+    behavior: SSRF guards on every hop, connect-time destination validation,
+    streamed byte cap, sanitized errors (SafeFetchError is a RuntimeError).
+    """
+    from app.core.config import get_settings
+
+    s = get_settings()
+    result = safe_fetch(
+        url,
+        policy=FetchPolicy(
+            timeout_s=timeout_s,
+            max_bytes=max_bytes,
+            max_redirects=s.fetch_max_redirects,
+            allowed_ports=s.fetch_allowed_port_set,
+            user_agent=s.fetch_user_agent,
+        ),
+    )
+    return result.content.decode("utf-8", errors="replace"), result.headers
+
+
 def analyze_job_url(url: str) -> dict:
     """Fetch + extract + analyze a job posting URL. Raises ValueError/RuntimeError."""
     url = validate_job_url(url)
     try:
-        r = httpx.get(
-            url, timeout=_FETCH_TIMEOUT_S, follow_redirects=True,
-            headers={"User-Agent": "thedaaakhouse/0.2 (+job-ingest)"},
-        )
-        r.raise_for_status()
-    except Exception as e:
+        html_text, headers = _fetch_page(url, _FETCH_TIMEOUT_S, _MAX_BYTES)
+    except SafeFetchError as e:
         raise RuntimeError(f"failed to fetch job URL: {e}") from e
-    content_type = r.headers.get("content-type", "").split(";")[0].strip().lower()
+    content_type = (headers.get("content-type") or "").split(";")[0].strip().lower()
     if content_type and "html" not in content_type and "text" not in content_type:
         raise ValueError(f"URL did not return a web page (content-type: {content_type or 'unknown'})")
-    raw = r.text[:_MAX_BYTES]
-    posting = extract_job_posting(raw, url)
+    posting = extract_job_posting(html_text[:_MAX_BYTES], url)
     if not posting["description"].strip():
         raise ValueError("no readable job description found on that page")
     analysis = analyze_jd(posting["description"])
