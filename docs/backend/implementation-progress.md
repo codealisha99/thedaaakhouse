@@ -8,7 +8,7 @@ resumes and readable exports).
 
 | # | Milestone | State | Evidence |
 |---|---|---|---|
-| 01 | Ownership boundaries + safe web fetch | done | `tests/test_ownership.py` passes |
+| 01 | Ownership boundaries + safe web fetch | done | `tests/test_ownership.py` (14) + `tests/test_safe_fetch.py` (49) + migration-gate tests in `test_migrations.py` pass; red-flags fixed: strict owner scoping cross-service, one SSRF-guarded fetcher for **all** user-supplied fetches, Alembic startup gate |
 | 02 | Durable task engine, approvals, retries | partially done | engine + API + migrations exist (`tests/test_migrations.py`, `tests/test_tasks_api.py`, `tests/test_workflows_tasks.py`); a few of these suites still churning — NOT verified green |
 | 03 | Scheduled job discovery | partially done | discovery routes/runs exist (`tests/test_discovery*`); NOT verified green |
 | 04 | Opportunity ranking + no-opening startups | done | `tests/test_opportunities.py` passes (score gate + dedupe) |
@@ -112,7 +112,86 @@ resumes and readable exports).
 - PDF readability is token-coverage-based (≥ 70% of non-authorial lines'
   content words reappear in the reparsed text), not a full semantic diff.
 
-## Migration chain (single head)
+## Step 01 — Ownership boundaries + centralized safe fetch
+
+### Ownership lockdown (with tests)
+
+- **Strict scoping everywhere** (`app/services.py`): every service method
+  scopes reads and writes to the authenticated user. The previous rule
+  `user_id not in (None, self.user.id)` — which made ownerless rows public —
+  is gone from `Resume`, `Job`, `Application.tailor`, `Learning.create_plan`,
+  `Arena.start`, and `Profile.seed_from_resume`. Unauthenticated service
+  calls return empty lists / `None` instead of global scans.
+- **Quarantined legacy rows** — a `NULL user_id` row is 404 to everyone, same
+  as a missing id (documented in `docs/backend/ownership-policy.md`).
+- **No unauthenticated write path**: `ResumeService.save_upload` and
+  `JobService.create` require a user and stamp `user_id` unconditionally.
+- **Cross-user reference rejection at write time**
+  (`ApplicationService.create/update`): `job_id` and `resume_version_id`
+  referencing another user's (or an ownerless) record fails with
+  400 "job not found" / "resume version not found" instead of being adopted.
+- Regression tests: `backend/tests/test_ownership.py` — ownerless reads
+  401/404, cross-user resume/job read 404, tailoring, attach-version,
+  patch-application, profile-seed, learn-plan, arena-start with foreign ids
+  400/404, list endpoints user-scoped.
+
+### One safe fetcher for every user-supplied URL
+
+- **`app/ingestion/safe_fetch.py`** is the single entry point; both previous
+  callers now use it (`ingestion/web_loader.py::fetch_url_text` used by
+  company research, and `analysis/jobpage.py::analyze_job_url`). Guards:
+  - URL text: http/https only, credentials in URL rejected (redirect
+    `Authorization` stripping), allowed ports bounded by settings
+    (`fetch_allowed_ports`, default 80/443).
+  - Destination: loopback/private/link-local/CGNAT/multicast/reserved and
+    IPv4-mapped-IPv6 literals rejected; hostnames resolved and validated —
+    **any** non-public record (one poisoned A record) blocks the fetch.
+  - Connect-time pinning: validation resolves the name and the
+    `_SafeDNSBackend` connects to that exact address, closing the
+    DNS-rebinding/TOCTOU gap that `jobpage.analyze_job_url` had
+    (it validated the hostname but `httpx` re-resolved at connect).
+  - Redirects: followed manually, each hop re-validated (scheme, ports,
+    destination) up to `fetch_max_redirects` (default 5); intra-universe
+    redirect chain recorded on the result.
+  - Bodies streamed with `fetch_max_bytes` cap (default 1 MB) and
+    `fetch_timeout_s` (default 20 s); `trust_env=False` so proxy env vars
+    cannot bypass guards.
+  - Errors are one `SafeFetchError(RuntimeError)` with a **code**
+    (`scheme_not_allowed`, `credentials_in_url`, `blocked_destination`,
+    `port_not_allowed`, `unresolvable_host`, `fetch_failed`,
+    `response_too_large`, `too_many_redirects`) and a sanitized public
+    message; internals ride in `.internal` for logging only.
+- Route contracts preserved: from-url keeps ValueError→400 / RuntimeError→502
+  semantics; `tests/test_joburl.py` now patches the module seam
+  (`_fetch_page`) and `socket.getaddrinfo`, not `httpx.get`.
+- Tests: `backend/tests/test_safe_fetch.py` (48) — every guard parametrized;
+  redirect-pivot tests (302 to `169.254.169.254`, to `ftp:`, size cap over
+  multi-chunk stream, sanitized errors); plus one offline end-to-end test
+  driving the production transport by intercepting `socket.create_connection`
+  to a local HTTP server under a public-looking literal IP (no network).
+- Settings: `fetch_timeout_s`, `fetch_max_bytes`, `fetch_max_redirects`,
+  `fetch_allowed_ports`, `fetch_user_agent` (documented in `.env.example`).
+
+### Alembic startup gate
+
+- `init_db()` (module `app/db/database.py`) no longer unconditionally
+  `create_all`s. PostgreSQL becomes the audited path: on boot it must have
+  `alembic_version` **and** be at the current head of the checked-in graph
+  (`require_migrated()`), else startup aborts with a run-this-first message.
+  SQLite keeps `create_all` for tests/dev.
+- Tests in `backend/tests/test_migrations.py` — unmigrated → refuse, stale
+  revision → refuse + pass after reaching head, multi-head detection,
+  Postgres path gated / SQLite path not.
+
+### Honest limits
+
+- Ownerless-claim tooling exists (`backend/scripts/claim_legacy_records.py`)
+  but actual prod data has not been claimed yet — ops task, by design.
+- The full upstream suite was red through no fault of step 01 while parallel
+  steps (02/04/05) churned the same working tree: verification ran per-slice
+  (49+14+6+11 own tests green; suite re-verifies when 02/04/05 stabilise).
+
+
 
 `705732ddfa74 → 4f8e2a71c9b3 (step 04) → b8d3f6a41c02 (step 05: truthful
 resume evidence) → b71f0d1a9c22 (durable tasks) → d3a9c8e5f1b6 (discovery)`.
