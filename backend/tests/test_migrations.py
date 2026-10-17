@@ -16,6 +16,8 @@ EXPECTED_TABLES = {
     # step 04 — opportunity ranking
     "organizations", "opportunities", "opportunity_evaluations",
     "applicant_count_observations",
+    # step 03 — scheduled job discovery
+    "discovery_sources", "job_listings", "listing_sources", "discovery_runs",
 }
 
 

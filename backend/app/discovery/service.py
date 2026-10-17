@@ -80,6 +80,14 @@ def validate_adapter_config(adapter_name: str, config: dict) -> dict:
     return adapter_cls.validate_config(config or {})
 
 
+def _validate_fetch_url(url: str) -> None:
+    """URL policy failures are config errors at the API boundary (HTTP 400)."""
+    try:
+        validate_source_url(url)
+    except ValueError as e:
+        raise SourceConfigError(str(e)) from e
+
+
 def create_source(
     db: Session,
     owner_id: str,
@@ -93,7 +101,7 @@ def create_source(
 ) -> DiscoverySource:
     cfg = validate_adapter_config(adapter, config)
     if adapter == "company_careers":
-        validate_source_url(cfg["url"])
+        _validate_fetch_url(cfg["url"])
     now = utcnow()
     source = DiscoverySource(
         owner_id=owner_id,
@@ -116,7 +124,7 @@ def update_source(db: Session, source: DiscoverySource, **fields) -> DiscoverySo
     if "config" in fields and fields["config"] is not None:
         source.config = validate_adapter_config(source.adapter, fields["config"])
         if source.adapter == "company_careers":
-            validate_source_url(source.config["url"])
+            _validate_fetch_url(source.config["url"])
     if "name" in fields and fields["name"] is not None:
         source.name = fields["name"].strip()
     if "interval_minutes" in fields and fields["interval_minutes"] is not None:
@@ -310,35 +318,28 @@ def _upsert_observation(
         return True, False, match.needs_review
 
     listing = match.listing
-    created_link = _add_link(db, listing, source, job, canonical, apply_canonical, hashed, match, now)
-    changed = False
+    _add_link(db, listing, source, job, canonical, apply_canonical, hashed, match, now)
     if listing.status == "closed":
         # Fresh evidence: reopen (repost preserves the same listing row).
         listing.status = "active"
         listing.closed_at = None
         listing.closed_reason = None
         listing.absent_scans = 0
-        changed = True
     if listing.absent_scans:
         listing.absent_scans = 0  # presence in any scan resets the counter
-        changed = True
     listing.last_seen_at = now
     if listing.posted_at is None and job.posted_at is not None:
         listing.posted_at = job.posted_at
-        changed = True
     if listing.description is None and job.description:
         listing.description = job.description
-        changed = True
     if listing.location is None and job.location:
         listing.location = job.location
-        changed = True
     if listing.remote_mode is None and job.remote_mode:
         listing.remote_mode = job.remote_mode
-        changed = True
     if listing.canonical_url is None and canonical:
         listing.canonical_url = canonical
-        changed = True
-    return False, created_link or changed, False
+    # Re-observing an existing listing counts as an update of that listing.
+    return False, True, False
 
 
 def _add_link(

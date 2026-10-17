@@ -69,7 +69,7 @@ def validate_source_url(url: str) -> str:
         literal = ipaddress.ip_address(host)
     except ValueError:
         return url  # hostname: resolved + pinned by the fetcher at request time
-    folded = literal.ipv4_mapped or literal
+    folded = getattr(literal, "ipv4_mapped", None) or literal
     if not folded.is_global or folded.is_private or folded.is_loopback or folded.is_link_local:
         raise ValueError(f"refusing to use non-public address {host}")
     return url

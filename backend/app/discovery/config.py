@@ -6,6 +6,8 @@ one file; same BaseSettings/.env conventions apply.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,8 +27,6 @@ class DiscoverySettings(BaseSettings):
     discovery_fetch_max_redirects: int = 5
 
 
-_settings = DiscoverySettings()
-
-
+@lru_cache(maxsize=1)
 def get_discovery_settings() -> DiscoverySettings:
-    return _settings
+    return DiscoverySettings()

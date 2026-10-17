@@ -17,7 +17,8 @@ Snapshot: 2026-10-18. Paths below are relative to the repository root. “Implem
 | Area | Source files under `backend/app/` | Current state |
 |---|---|---|
 | Application tracker | `api/routes/applications.py`, `services.py`, `schemas/application.py` | CRUD, filtering, status history, linked resume versions and analyses |
-| Import one job URL | `analysis/jobpage.py`, application `/from-url` route | Fetches and extracts JSON-LD/HTML; URL validation exists; no scheduled multi-source discovery |
+| Import one job URL | `analysis/jobpage.py`, application `/from-url` route | Fetches and extracts JSON-LD/HTML; URL validation exists; single-URL import only — scheduled multi-source discovery lives in `app/discovery/` |
+| Scheduled job discovery | `app/discovery/` (adapters, dedup, service, scheduler), `api/routes/discovery.py` | Owner-scoped source CRUD and scheduled scans; Greenhouse/Lever/JSON-LD adapters, cross-site dedup with review band, closure only after consecutive complete scans |
 | Resume ingestion | `ingestion/docparse.py`, `services.py:ResumeService` | PDF/DOCX extraction, text/LaTeX handling, contact/section parsing and warnings exist |
 | Structured candidate profile | `ingestion/resume_parser.py`, `schemas/resume.py` | `BasicResumeParser` still returns a minimal name-based profile; binary parsing is more advanced than profile extraction |
 | Career preferences and fit | `api/routes/profile.py`, `api/routes/fit.py`, `analysis/fit.py` | Career profile, demonstrated/claimed/to-learn skills, stored fit evaluations |
@@ -46,7 +47,7 @@ Application statuses are `saved`, `applied`, `oa`, `interview`, `final_round`, `
 2. **Fetch protections differed.** *(Fixed in step 01.)* `ingestion/web_loader.py` and `analysis/jobpage.py` both fetch through `ingestion/safe_fetch.py` — one bounded, SSRF-guarded fetcher with connect-time DNS pinning and per-hop redirect validation. New fetch callers must use `safe_fetch`, not `httpx` directly.
 3. **Startup schema creation is not migration validation.** `db/database.py:init_db()` uses `create_all`; production changes must run explicit Alembic migrations. Verify the existing revision graph before adding revisions. Never use `stamp head` as a substitute for applying unknown schema changes.
 4. **No durable workflow engine.** Long operations currently run through request/service paths; Redis is reserved but workers, run records, leases and retry reconciliation are missing.
-5. **No discovery, application-submit or email provider implementation.** Tracker status changes are not proof that a real application was submitted.
+5. **No application-submit or email provider implementation.** Scheduled job discovery now exists (`app/discovery/`, step 03). Tracker status changes are not proof that a real application was submitted.
 6. **Structured evidence is incomplete.** Existing raw text, parsed sections and career profiles need a consistent evidence model before generated claims or form answers can be trusted.
 7. **Older docs mix milestones and current behavior.** README planned PDF/DOCX extraction and LaTeX descriptions lag actual code. Older architecture/data-model files describe an earlier subset. Use this snapshot and source inspection when executing the new plan.
 
