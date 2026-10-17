@@ -42,9 +42,8 @@ An application links a job and the resume version used. A master resume can have
 Application statuses are `saved`, `applied`, `oa`, `interview`, `final_round`, `offer`, `rejected`, and `withdrawn`. Keep submission execution states separate from these business statuses.
 
 ## Important gaps to address first
-
-1. **Ownership is not uniformly strict.** `ResumeService.get()` and `JobService.get()` allow rows whose `user_id` is null. Audit legacy ownership and every related-object reference before adding workers. Do not assign legacy rows to an arbitrary user.
-2. **Fetch protections differ.** `analysis/jobpage.py` validates URLs, while `ingestion/web_loader.py` follows redirects without equivalent destination validation. Introduce one bounded fetch service covering redirects, DNS/address changes and all research/discovery callers.
+1. **Ownership was not uniformly strict.** *(Fixed in step 01.)* Every service now scopes to the authenticated user; `user_id = NULL` rows are quarantined and claimable only via `backend/scripts/claim_legacy_records.py` (see [ownership-policy.md](ownership-policy.md)). New code must not reintroduce `(None, user.id)`-style filters.
+2. **Fetch protections differed.** *(Fixed in step 01.)* `ingestion/web_loader.py` and `analysis/jobpage.py` both fetch through `ingestion/safe_fetch.py` — one bounded, SSRF-guarded fetcher with connect-time DNS pinning and per-hop redirect validation. New fetch callers must use `safe_fetch`, not `httpx` directly.
 3. **Startup schema creation is not migration validation.** `db/database.py:init_db()` uses `create_all`; production changes must run explicit Alembic migrations. Verify the existing revision graph before adding revisions. Never use `stamp head` as a substitute for applying unknown schema changes.
 4. **No durable workflow engine.** Long operations currently run through request/service paths; Redis is reserved but workers, run records, leases and retry reconciliation are missing.
 5. **No discovery, application-submit or email provider implementation.** Tracker status changes are not proof that a real application was submitted.
