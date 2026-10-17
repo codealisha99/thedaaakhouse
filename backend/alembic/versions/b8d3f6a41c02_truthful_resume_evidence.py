@@ -46,14 +46,14 @@ def upgrade() -> None:
     # resume_versions: which master snapshot a version derives from
     op.add_column('resume_versions', sa.Column('master_sha256', sa.String(length=64), nullable=True))
     # ats_analyses: stale once the analysed version is manually edited
-    op.add_column('ats_analyses', sa.Column('stale', sa.Boolean(), server_default=sa.text('0'), nullable=False))
+    op.add_column('ats_analyses', sa.Column('stale', sa.Boolean(), server_default=sa.false(), nullable=False))
     # optimization_runs: provenance hashes, export reparse validation, invalidation
     op.add_column('optimization_runs', sa.Column('jd_sha256', sa.String(length=64), nullable=True))
     op.add_column('optimization_runs', sa.Column('resume_sha256', sa.String(length=64), nullable=True))
     op.add_column('optimization_runs', sa.Column('config_hash', sa.String(length=64), nullable=True))
     op.add_column('optimization_runs', sa.Column('export_validation', sa.JSON(), nullable=True))
     op.add_column('optimization_runs', sa.Column('final_pdf_sha256', sa.String(length=64), nullable=True))
-    op.add_column('optimization_runs', sa.Column('invalidated', sa.Boolean(), server_default=sa.text('0'), nullable=False))
+    op.add_column('optimization_runs', sa.Column('invalidated', sa.Boolean(), server_default=sa.false(), nullable=False))
 
 
 def downgrade() -> None:
