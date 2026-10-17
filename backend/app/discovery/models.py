@@ -23,7 +23,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base, TimestampMixin, uuid_key as _uuid
 
@@ -102,6 +102,12 @@ class JobListing(Base, TimestampMixin):
         String(36), ForeignKey("job_listings.id", ondelete="SET NULL"), nullable=True
     )
 
+    #: Every source's observation of this listing (always loaded with the row).
+    sources: Mapped[list["ListingSource"]] = relationship(
+        "ListingSource", back_populates="listing", cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
     __table_args__ = (
         CheckConstraint("status IN ('active', 'closed')", name="ck_job_listings_status"),
         Index("ix_job_listings_owner_status", "owner_id", "status"),
@@ -133,6 +139,8 @@ class ListingSource(Base, TimestampMixin):
     #: How this observation attached to its listing (spec dedup order).
     match_method: Mapped[str] = mapped_column(String(32), nullable=False, default="new")
     match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    listing: Mapped["JobListing"] = relationship("JobListing", back_populates="sources")
 
     __table_args__ = (
         UniqueConstraint("source_id", "external_id", name="uq_listing_sources_source_external"),

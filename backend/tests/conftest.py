@@ -20,6 +20,7 @@ def client(tmp_path, monkeypatch):
     get_settings.cache_clear()
 
     import app.db.models  # noqa: F401 — register tables
+    import app.discovery.models  # noqa: F401
 
     eng = create_engine(url, connect_args={"check_same_thread": False})
     TestingSession = sessionmaker(bind=eng, autoflush=False, autocommit=False)

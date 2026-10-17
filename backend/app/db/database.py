@@ -108,6 +108,7 @@ def init_db(engine=None, db_settings=None) -> None:
     s = db_settings if db_settings is not None else globals()["settings"]
     # Import every model module so Base.metadata is fully populated.
     import app.db.models  # noqa: F401
+    import app.discovery.models  # noqa: F401
     import app.workflows.models  # noqa: F401
 
     if s.is_postgres:

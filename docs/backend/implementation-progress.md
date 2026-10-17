@@ -2,7 +2,7 @@
 
 Living status note. Yes = verified by a test in this repo; Not yet = exists
 only as scaffolding. Last reviewed after **build step 05** (truthful tailored
-resumes and readable exports).
+resumes) and **step 03** (scheduled job discovery).
 
 ## Milestone state
 
@@ -10,7 +10,7 @@ resumes and readable exports).
 |---|---|---|---|
 | 01 | Ownership boundaries + safe web fetch | done | `tests/test_ownership.py` (14) + `tests/test_safe_fetch.py` (49) + migration-gate tests in `test_migrations.py` pass; red-flags fixed: strict owner scoping cross-service, one SSRF-guarded fetcher for **all** user-supplied fetches, Alembic startup gate |
 | 02 | Durable task engine, approvals, retries | partially done | engine + API + migrations exist (`tests/test_migrations.py`, `tests/test_tasks_api.py`, `tests/test_workflows_tasks.py`); a few of these suites still churning — NOT verified green |
-| 03 | Scheduled job discovery | partially done | discovery routes/runs exist (`tests/test_discovery*`); NOT verified green |
+| 03 | Scheduled job discovery | done | `tests/test_discovery.py` (38) + discovery tables in `tests/test_migrations.py`; cross-site dedup, dedup review band, absence-only-on-complete-scans, scheduler tick, source CRUD/run API all pass |
 | 04 | Opportunity ranking + no-opening startups | done | `tests/test_opportunities.py` passes (score gate + dedupe) |
 | 05 | Truthful tailored resumes + readable exports | done | this document below |
 
@@ -111,6 +111,55 @@ resumes and readable exports).
   is persisted and exposed but not yet enforced inside `tailor_resume`.
 - PDF readability is token-coverage-based (≥ 70% of non-authorial lines'
   content words reappear in the reparsed text), not a full semantic diff.
+
+## Step 03 — Scheduled job discovery
+
+### What is in place (with tests)
+
+- **Adapters** (`app/discovery/adapters/`) for `greenhouse`, `lever`, and
+  `company_careers` (JSON-LD), each declaring its own `validate_config`
+  (invalid config → `SourceConfigError` → HTTP 400). Adapters return an
+  `AdapterResult` whose `complete` flag is what later gates closure; a
+  truncated/failed fetch reports `complete=False`.
+- **Dedup** (`app/discovery/dedup.py`) in spec order: same-source external id →
+  platform stable id across boards (`greenhouse`/`lever`) → canonical URL
+  (tracking params stripped) → conservative fuzzy title match
+  (`AUTO_MERGE_TITLE_SIM=0.92`); scores in `[0.80, 0.92)` become a *new*
+  listing flagged `needs_review` with `review_candidate_id` instead of a
+  silent merge.
+- **Lifecycle invariants** (`app/discovery/service.py`): only a successful
+  **complete** scan increments `absent_scans`; a failed or truncated scan
+  never closes a listing and never counts absence
+  (`test_failed_fetch_never_closes_or_counts_absence`,
+  `test_incomplete_scan_does_not_count_absence`). Closure needs
+  `discovery_scan_absent_threshold` consecutive complete scans
+  (`closed_reason="absent_complete_scans"`); reappearance reopens the same
+  row. Failures set exponential backoff (`interval * 2^min(n,4)`, capped 24 h).
+- **Scheduler** (`app/discovery/scheduler.py`): one in-process asyncio loop,
+  **off by default** (`DISCOVERY_SCHEDULER_ENABLED=false`), ticking
+  `due_sources` on a worker thread; a failing source never stalls the loop.
+  Started/stopped from the app lifespan.
+- **API** (`app/api/routes/discovery.py`, prefix `/api/discovery`): owner-scoped
+  source CRUD (400 on bad config, 404 cross-owner), runs (201/404/409 on
+  concurrent scan), listings list/get with `status`/`needs_review` filters and
+  embedded source observations.
+- **Migration** `d3a9c8e5f1b6_discovery_sources_listings_runs.py` — four tables
+  (`discovery_sources`, `job_listings`, `listing_sources`, `discovery_runs`)
+  with owner scoping, uniqueness on `(source_id, external_id)`, and status
+  check constraints; single Alembic head.
+- Tests: `backend/tests/test_discovery.py` (38) — adapter parsing/failure
+  codes, URL policy, dedup outcomes, lifecycle/backoff, reopen, scheduler tick,
+  and the API surface. Fetches are injected stubs; no network in the suite.
+
+### Honest limits
+
+- Scheduling is an in-process loop, not the durable task engine (step 02) —
+  scans do not survive a process restart mid-run; the engine is the intended
+  successor.
+- `company_careers` covers JSON-LD job postings only; JS-rendered boards
+  without structured data are not parsed.
+- Fuzzy matching is stdlib `difflib` on normalized titles plus location/company
+  compatibility — deliberately conservative, favoring review over wrong merges.
 
 ## Step 01 — Ownership boundaries + centralized safe fetch
 

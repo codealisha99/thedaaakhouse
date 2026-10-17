@@ -7,10 +7,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.api.routes import applications, arena, auth, automation, dev, fit, future, health, integrations, jobs, learn, opportunities, optimize, profile, resumes, tasks
+from app.api.routes import applications, arena, auth, automation, dev, discovery, fit, future, health, integrations, jobs, learn, opportunities, optimize, profile, resumes, tasks
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.db.database import init_db
+from app.discovery.scheduler import DiscoveryScheduler
 
 log = get_logger(__name__)
 
@@ -21,8 +22,11 @@ async def lifespan(app: FastAPI):
     setup_logging(s.log_level)
     s.ensure_production_ready()  # raises -> server refuses to start
     init_db()
+    scheduler = DiscoveryScheduler()
+    await scheduler.start()
     log.info("thedaaakhouse backend ready (db=%s)", "postgres" if s.is_postgres else "sqlite")
     yield
+    await scheduler.stop()
 
 
 def create_app() -> FastAPI:
@@ -71,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(optimize.router)
     app.include_router(fit.router)
     app.include_router(opportunities.router)
+    app.include_router(discovery.router)
     app.include_router(dev.router)
     return app
 
