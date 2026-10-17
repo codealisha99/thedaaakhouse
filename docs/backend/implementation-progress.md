@@ -2,17 +2,73 @@
 
 Living status note. Yes = verified by a test in this repo; Not yet = exists
 only as scaffolding. Last reviewed after **build step 05** (truthful tailored
-resumes) and **step 03** (scheduled job discovery).
+resumes), **step 03** (scheduled job discovery), and **step 02 verification**
+(durable tasks crashed-safe under real PostgreSQL).
 
 ## Milestone state
 
 | # | Milestone | State | Evidence |
 |---|---|---|---|
 | 01 | Ownership boundaries + safe web fetch | done | `tests/test_ownership.py` (14) + `tests/test_safe_fetch.py` (49) + migration-gate tests in `test_migrations.py` pass; red-flags fixed: strict owner scoping cross-service, one SSRF-guarded fetcher for **all** user-supplied fetches, Alembic startup gate |
-| 02 | Durable task engine, approvals, retries | partially done | engine + API + migrations exist (`tests/test_migrations.py`, `tests/test_tasks_api.py`, `tests/test_workflows_tasks.py`); a few of these suites still churning — NOT verified green |
+| 02 | Durable task engine, approvals, retries | done | engine + API + migrations exist and regressions pass (`tests/test_migrations.py`, `tests/test_tasks_api.py`, `tests/test_workflows_tasks.py`, `tests/test_workflows_automation.py`); the previously missing **PostgreSQL concurrency gate** now exists: `tests/test_workflows_postgres.py` (8) — runs against a disposable Postgres when `TEST_DATABASE_URL` is set, skipped otherwise; PG-only migration bugs found and fixed (see below) |
 | 03 | Scheduled job discovery | done | `tests/test_discovery.py` (38) + discovery tables in `tests/test_migrations.py`; cross-site dedup, dedup review band, absence-only-on-complete-scans, scheduler tick, source CRUD/run API all pass |
 | 04 | Opportunity ranking + no-opening startups | done | `tests/test_opportunities.py` passes (score gate + dedupe) |
 | 05 | Truthful tailored resumes + readable exports | done | this document below |
+
+## Step 02 — PostgreSQL verification of the durable task engine
+
+The engine itself (task_runs / outbox / audit / policies / approvals, leases,
+finite backoff, 202+poll API, poll/RQ workers, dispatcher) was already built;
+what was missing was the PostgreSQL proof that the spec demands. Findings and
+fixes:
+
+- **The Alembic chain did not apply to PostgreSQL at all.** Fresh
+  `upgrade de head` (baseline included) failed three ways, all invisible to
+  SQLite:
+  1. `baseline_schema` (50ef50a56078) created `applications` referencing
+     `users`/`jobs`/`resume_versions` before those tables exist, and
+     `resume_versions` before `resumes` exists.
+  2. `truthful_resume_evidence` (b8d3f6a41c02) used SQLite-flavored boolean
+     defaults (`DEFAULT 0`) → `DatatypeMismatch` on PG booleans.
+  3. `opportunities_and_ranking` (4f8e2a71c9b3) declared
+     `opportunities.latest_evaluation_id → opportunity_evaluations.id`
+     inline, referencing a table created *after* `opportunities`.
+  Fixes (committed migration edits — no deployed PostgreSQL database existed
+  to break; SQLite dev DBs are version-stamped and never re-run old
+  revisions): tables created in dependency order, cycle-breaking FKs added
+  post-create via `batch_alter_table` with a naming convention (portable
+  across SQLite batch recreate and PG ALTER), and `sa.false()` boolean
+  defaults.
+- **`tests/test_workflows_postgres.py` (8 tests, skipped without
+  `TEST_DATABASE_URL`)** proves against real PG:
+  - 8 concurrent enqueues of one idempotency key collapse to exactly one
+    task (unique constraint `uq_task_runs_idem`), with one creator and seven
+    replays; a different payload under the same key conflicts for every
+    concurrent requester.
+  - a dispatcher/queue outage after the task commit loses nothing; on
+    restart one publish transaction transitions the outbox pending →
+    published and the handler runs once.
+  - six concurrent `execute()`s produce exactly one handler run — one
+    succeeded, five skipped (`claimed_elsewhere`/`not_runnable`); late
+    redeliveries after completion never re-run.
+  - four concurrent recovering dispatchers heal an expired lease exactly
+    once, writing exactly one redelivery event; recovery attempt counts
+    toward `max_attempts`.
+  - a standing policy revoked between attempts fails the retry with
+    `authorization_revoked` (no silent side effect), matching the SQLite
+    suite.
+  - a cancelled queued task is never executed by racing workers.
+- Verification run: `TEST_DATABASE_URL=... pytest -q
+  tests/test_workflows_postgres.py` → 8 passed; full SQLite suite
+  (`pytest -q tests/`) → 300 passed, 8 skipped (the PG module, by design).
+
+### Honest limits
+
+- Scheduling is an in-process loop (step 03) rather than the durable engine —
+  recorded from step 03, unchanged.
+- The runtime DB mode is normalized (`postgresql+psycopg2`), but production
+  Postgres connections were exercised only through this disposable test
+  database; a deployed instance has never been pressure-tested.
 
 ## Step 05 — Truthful tailored resumes and reliable exports
 
