@@ -57,7 +57,7 @@ def upgrade() -> None:
         sa.Column('title', sa.String(length=512), nullable=True),
         sa.Column('description', sa.Text(), nullable=True),
         sa.Column('priority_score', sa.Float(), nullable=True),
-        sa.Column('latest_evaluation_id', sa.String(length=36), sa.ForeignKey('opportunity_evaluations.id'), nullable=True),
+        sa.Column('latest_evaluation_id', sa.String(length=36), nullable=True),
         sa.Column('eligibility_status', sa.String(length=16), nullable=False, server_default='unknown'),
         sa.Column('fit_classification', sa.String(length=32), nullable=False, server_default='needs_review'),
         sa.Column('fit_score', sa.Float(), nullable=True),
@@ -109,6 +109,16 @@ def upgrade() -> None:
     )
     op.create_index('ix_opportunity_evaluations_user_id', 'opportunity_evaluations', ['user_id'])
     op.create_index('ix_opportunity_evaluations_opportunity_id', 'opportunity_evaluations', ['opportunity_id'])
+    # Deferred FK: opportunities.latest_evaluation_id references a table created
+    # just above; PostgreSQL refuses inline forward references, SQLite's batch
+    # recreate keeps the ALTER portable.
+    with op.batch_alter_table('opportunities', naming_convention=_batch_naming()) as batch:
+        batch.create_foreign_key(
+            'fk_opportunities_latest_evaluation_id_opportunity_evaluations',
+            'opportunity_evaluations',
+            ['latest_evaluation_id'],
+            ['id'],
+        )
     # Batch mode: plain ALTER of constraints does not work on SQLite.
     with op.batch_alter_table('opportunity_evaluations', naming_convention=_batch_naming()) as batch:
         batch.create_unique_constraint(
