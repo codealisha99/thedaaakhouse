@@ -19,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.core.config import get_settings  # noqa: E402
 from app.db.database import Base  # noqa: E402
 import app.db.models  # noqa: E402,F401 — register all tables on metadata
+import app.submissions.models  # noqa: E402,F401 — register submission tables
+import app.outreach.models  # noqa: E402,F401 — register outreach tables
 
 config = context.config
 if config.config_file_name is not None:
