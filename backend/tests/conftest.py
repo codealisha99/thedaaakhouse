@@ -21,6 +21,9 @@ def client(tmp_path, monkeypatch):
 
     import app.db.models  # noqa: F401 — register tables
     import app.discovery.models  # noqa: F401
+    import app.workflows.models  # noqa: F401
+    import app.submissions.models  # noqa: F401
+    import app.outreach.models  # noqa: F401
 
     eng = create_engine(url, connect_args={"check_same_thread": False})
     TestingSession = sessionmaker(bind=eng, autoflush=False, autocommit=False)
@@ -36,6 +39,7 @@ def client(tmp_path, monkeypatch):
     from app.main import create_app
 
     app = create_app()
+    app.state.testing_sessionmaker = TestingSession
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as c:
         yield c

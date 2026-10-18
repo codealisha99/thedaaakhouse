@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     # URLs only). Providers register in app/opportunities/providers.py.
     startup_search_provider: str = "none"
 
+    # ---- Submission adapter (backend/app/submissions) ----
+    # Exact URL of the operator-controlled test application destination. This
+    # is the only live submission target the system will ever talk to.
+    submission_test_url: str = ""
+    submission_timeout_s: float = 10.0
+    submission_ttl_s: int = 3600
+
     # ---- Safe fetcher (backend/app/ingestion/safe_fetch.py) ----
     # One guard for every user-supplied URL (job import, company research).
     # Schemes fixed to http/https; ports/redirects/size bounded here.

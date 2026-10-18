@@ -15,7 +15,21 @@ from app.schemas.application import (
     ResumeVersionOut,
     TailorIn,
 )
+from app.schemas.submission import (
+    PrepareIn,
+    ReconcileIn,
+    SubmitIn,
+    submission_out,
+)
 from app.services import ApplicationService, ResumeService
+from app.submissions.service import (
+    MANUAL_HANDOFF_INSTRUCTION,
+    SubmissionError,
+    SubmissionService,
+    build_package,
+)
+from app.submissions.adapters import available_adapters
+from app.workflows.service import TaskService
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 
@@ -51,6 +65,15 @@ def _version_out(v: models.ResumeVersion) -> dict:
 @router.get("/statuses")
 def list_statuses():
     return {"statuses": list(APPLICATION_STATUSES)}
+
+
+@router.get("/submission-adapters")
+def submission_adapter_capabilities():
+    """Report configured send and manual handoff capabilities."""
+    return [
+        {"kind": adapter.name, "live": adapter.live, "reason": adapter.reason}
+        for adapter in available_adapters()
+    ]
 
 
 @router.post("", status_code=201)
@@ -441,3 +464,181 @@ def version_pdf(version_id: str, db: Session = Depends(get_db),
     safe = "".join(c for c in v.label if c.isalnum() or c in " _-").strip()[:60] or "resume"
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{safe}.pdf"'})
+
+
+# --------------------------------------------------------------------------- #
+# Submissions (step 07): frozen packages -> adapters -> receipts.
+# Only a confirmed receipt marks the application applied; the manual tracker
+# below stays exactly as it was.
+
+def _submission_error(err: "SubmissionError") -> HTTPException:
+    detail = {"code": err.code, "detail": err.detail}
+    if err.code in (
+        "application_not_found",
+        "submission_not_found",
+        "resume_not_found",
+    ):
+        return HTTPException(status_code=404, detail=detail)
+    if err.code == "idempotency_conflict":
+        return HTTPException(status_code=409, detail=detail)
+    if err.code == "not_reconcilable":
+        return HTTPException(status_code=409, detail=detail)
+    return HTTPException(status_code=422, detail=detail)
+
+
+@router.post("/{app_id}/prepare")
+def prepare_submission(app_id: str, payload: PrepareIn,
+                       db: Session = Depends(get_db),
+                       user: models.User = Depends(get_current_user)):
+    """Validate + preview the frozen package without queueing anything.
+
+    Unknown mandatory answers come back as ``needs_input`` with the list; an
+    unsupported destination comes back with an actionable manual handoff."""
+    svc = SubmissionService(db, user.id)
+    app_obj = svc._get_owned(models.Application, app_id)
+    if app_obj is None:
+        raise HTTPException(status_code=404, detail={"code": "application_not_found", "detail": "application not found"})
+    destination = payload.destination_url or app_obj.job_url or ""
+    try:
+        built = build_package(
+            db, user.id, app_obj,
+            answers=payload.answers,
+            destination_url=destination,
+            resume_version_id=payload.resume_version_id,
+            questions=[q.model_dump() for q in payload.questions] if payload.questions else None,
+            adapter_kind=payload.adapter,
+        )
+    except SubmissionError as err:
+        raise _submission_error(err) from None
+    adapter = built["adapter"]
+    handoff = None
+    if built["adapter_kind"] == "manual":
+        handoff = {
+            "url": built["package"]["destination_url"],
+            "instruction": MANUAL_HANDOFF_INSTRUCTION,
+        }
+    return {
+        "application_id": app_id,
+        "adapter": {"kind": adapter.name, "live": adapter.live, "reason": adapter.reason},
+        "destination_url": built["package"]["destination_url"],
+        "questions": built["package"]["form"],
+        "answers": built["package"]["answers"],
+        "missing_required": built["missing"],
+        "package_sha256": built["package_sha256"],
+        "artifact_sha256": built["artifact_sha256"],
+        "artifact_preview": (built["artifact_text"] or "")[:2000],
+        "state": built["state"],
+        "handoff": handoff,
+    }
+
+
+@router.post("/{app_id}/submit", status_code=202)
+def submit_application(app_id: str, payload: SubmitIn,
+                       db: Session = Depends(get_db),
+                       user: models.User = Depends(get_current_user)):
+    """Queue an authorized submission of a validated package.
+
+    Repeated identical requests replay; a different package under the same
+    idempotency key conflicts. The worker re-checks authorization, package
+    hash and artifact hash immediately before contacting the destination."""
+    svc = SubmissionService(db, user.id)
+    try:
+        sub, task, replayed = svc.queue_submission(
+            app_id,
+            answers=payload.answers,
+            destination_url=payload.destination_url,
+            resume_version_id=payload.resume_version_id,
+            questions=[q.model_dump() for q in payload.questions] if payload.questions else None,
+            idempotency_key=payload.idempotency_key,
+            ttl_seconds=payload.ttl_seconds,
+        )
+    except SubmissionError as err:
+        raise _submission_error(err) from None
+    poll_url = f"/api/tasks/{task.id}" if task is not None else ""
+    return {
+        "submission_id": sub.id,
+        "task_id": sub.task_id,
+        "status": task.status if task is not None else sub.state,
+        "poll_url": poll_url,
+        "replayed": bool(replayed),
+        "state": sub.state,
+    }
+
+
+@router.get("/{app_id}/submissions")
+def list_submissions(app_id: str, db: Session = Depends(get_db),
+                     user: models.User = Depends(get_current_user)):
+    """Submission history, receipts and handoff information for one application."""
+    svc = SubmissionService(db, user.id)
+    app_obj = svc._get_owned(models.Application, app_id)
+    if app_obj is None:
+        raise HTTPException(status_code=404, detail={"code": "application_not_found", "detail": "application not found"})
+    subs = svc.list_for(app_id)
+    return {
+        "application_id": app_id,
+        "submissions": [submission_out(s) for s in subs],
+        "total": len(subs),
+    }
+
+
+@router.get("/{app_id}/submissions/{submission_id}")
+def get_submission(app_id: str, submission_id: str,
+                   db: Session = Depends(get_db),
+                   user: models.User = Depends(get_current_user)):
+    svc = SubmissionService(db, user.id)
+    sub = svc.get(submission_id)
+    if sub is None or sub.application_id != app_id:
+        raise HTTPException(status_code=404, detail={"code": "submission_not_found", "detail": "submission not found"})
+    return submission_out(sub)
+
+
+@router.post("/{app_id}/submissions/{submission_id}/reconcile")
+def reconcile_submission(app_id: str, submission_id: str, payload: ReconcileIn,
+                         db: Session = Depends(get_db),
+                         user: models.User = Depends(get_current_user)):
+    """Resolve an ambiguous (``unknown``) submission. Never re-sends: asks the
+    destination about this exact submission id, or records its affirmative
+    non-receipt as ``failed``."""
+    svc = SubmissionService(db, user.id)
+    owned = svc.get(submission_id)
+    if owned is None or owned.application_id != app_id:
+        raise HTTPException(status_code=404, detail={"code": "submission_not_found", "detail": "submission not found"})
+    try:
+        sub = svc.reconcile(submission_id, payload.outcome)
+    except SubmissionError as err:
+        raise _submission_error(err) from None
+    if sub.state == "submitted":
+        resolution = "submitted"
+    elif sub.state == "failed" and "no record" in (sub.state_reason or ""):
+        resolution = "not_found"
+    elif sub.state == "failed":
+        resolution = "failed"
+    elif sub.state == "unknown":
+        resolution = "still_unknown"
+    else:
+        resolution = sub.state
+    return {
+        "submission_id": sub.id,
+        "state": sub.state,
+        "resolution": resolution,
+        "note": sub.state_reason or "",
+    }
+
+
+@router.post("/{app_id}/submissions/{submission_id}/cancel")
+def cancel_submission(app_id: str, submission_id: str,
+                      db: Session = Depends(get_db),
+                      user: models.User = Depends(get_current_user)):
+    """Cancel a queued submission before any external effect. A confirmed
+    submission cannot be cancelled here."""
+    svc = SubmissionService(db, user.id)
+    sub = svc.get(submission_id)
+    if sub is None or sub.application_id != app_id:
+        raise HTTPException(status_code=404, detail={"code": "submission_not_found", "detail": "submission not found"})
+    svc.cancel_queued(sub, "cancelled by user")
+    if sub.task_id:
+        try:
+            TaskService(db, user.id).cancel(sub.task_id)
+        except LookupError:
+            pass
+    return submission_out(sub)
