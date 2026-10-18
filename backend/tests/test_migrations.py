@@ -18,6 +18,8 @@ EXPECTED_TABLES = {
     "applicant_count_observations",
     # step 03 — scheduled job discovery
     "discovery_sources", "job_listings", "listing_sources", "discovery_runs",
+    # steps 07–08 — submissions and offline outreach drafts
+    "application_submissions", "outreach_drafts", "outreach_draft_versions",
 }
 
 
