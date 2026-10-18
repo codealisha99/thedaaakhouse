@@ -184,4 +184,8 @@ export const api = {
     req<ArenaSession>(`/api/arena/sessions/${id}/answer`, { method: "POST", body: JSON.stringify({ answer }) }),
   integrations: () =>
     req<{ providers: { name: string; active: boolean; model: string; status: string; note?: string }[] }>("/api/integrations"),
+  gmailStatus: () => req<{ provider: string; enabled: boolean; connected: boolean; email: string | null; capabilities: string[] }>("/api/integrations/gmail"),
+  gmailConnect: () => req<{ authorization_url: string }>("/api/integrations/gmail/connect", { method: "POST" }),
+  gmailDisconnect: () => req<{ disconnected: boolean }>("/api/integrations/gmail", { method: "DELETE" }),
+  gmailSync: () => req<{ events_added: number }>("/api/integrations/gmail/sync", { method: "POST" }),
 };

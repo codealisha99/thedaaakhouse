@@ -13,6 +13,7 @@ from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, Float, ForeignK
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base, TimestampMixin, uuid_key as _uuid
+from app.outreach.delivery_models import EmailAccount, GmailOAuthState, OutreachDeliveryEvent, OutreachSend, OutreachSuppression  # noqa: F401
 
 APPLICATION_STATUSES = (
     "saved",
