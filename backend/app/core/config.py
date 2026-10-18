@@ -74,6 +74,16 @@ class Settings(BaseSettings):
     submission_timeout_s: float = 10.0
     submission_ttl_s: int = 3600
 
+    # ---- Gmail outreach (disabled until OAuth + an at-rest key are set) ----
+    gmail_client_id: str = ""
+    gmail_client_secret: str = ""
+    gmail_redirect_uri: str = "http://localhost:8001/api/integrations/gmail/callback"
+    gmail_token_encryption_key: str = ""
+    gmail_enabled: bool = False
+    gmail_daily_limit: int = 10
+    gmail_quiet_start_hour: int = 21
+    gmail_quiet_end_hour: int = 8
+
     # ---- Safe fetcher (backend/app/ingestion/safe_fetch.py) ----
     # One guard for every user-supplied URL (job import, company research).
     # Schemes fixed to http/https; ports/redirects/size bounded here.
@@ -116,6 +126,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _resolve_paths(self):
+        if not 0 <= self.gmail_quiet_start_hour <= 23 or not 0 <= self.gmail_quiet_end_hour <= 23:
+            raise ValueError("Gmail quiet hours must be between 0 and 23 UTC")
+        if self.gmail_daily_limit < 1:
+            raise ValueError("GMAIL_DAILY_LIMIT must be positive")
         # data_dir: relative values anchor at backend/, never cwd.
         d = Path(self.data_dir)
         if not d.is_absolute():
@@ -136,6 +150,19 @@ class Settings(BaseSettings):
         problems: list[str] = []
         if not self.jwt_secret or self.jwt_secret == DEV_JWT_SECRET:
             problems.append("JWT_SECRET is missing or still the development default")
+        if self.gmail_enabled:
+            if not self.gmail_client_id or not self.gmail_client_secret:
+                problems.append("Gmail is enabled but OAuth client credentials are missing")
+            if not self.gmail_token_encryption_key:
+                problems.append("Gmail is enabled but GMAIL_TOKEN_ENCRYPTION_KEY is missing")
+            else:
+                try:
+                    from cryptography.fernet import Fernet
+                    Fernet(self.gmail_token_encryption_key.encode())
+                except Exception:
+                    problems.append("GMAIL_TOKEN_ENCRYPTION_KEY is invalid")
+            if not 0 <= self.gmail_quiet_start_hour <= 23 or not 0 <= self.gmail_quiet_end_hour <= 23:
+                problems.append("Gmail quiet-hour values must be between 0 and 23 UTC")
         if problems:
             raise RuntimeError("refusing to start in production: " + "; ".join(problems))
 

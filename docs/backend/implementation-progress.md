@@ -1,10 +1,11 @@
 # Implementation progress
 
 Living status note. Yes = verified by a test in this repo; Not yet = exists
-only as scaffolding. Last reviewed after **build steps 07–08** (application
-submissions and offline outreach drafts), **step 05** (truthful tailored
-resumes), **step 03** (scheduled job discovery), and **step 02 verification**
-(durable tasks crashed-safe under real PostgreSQL).
+only as scaffolding. Last reviewed after **steps 09–10 implementation**. Step
+09 has deterministic Gmail adapter fixtures but no live provider verification.
+Step 10 remains partial: this branch adds an operations runbook and a minimal
+Gmail integration panel, while step 06, release-grade E2E, and production
+operations are not complete.
 
 ## Milestone state
 
@@ -17,6 +18,49 @@ resumes), **step 03** (scheduled job discovery), and **step 02 verification**
 | 05 | Truthful tailored resumes + readable exports | done | this document below |
 | 07 | Application packages and supported submission | done (live integration limited to controlled test destination) | `tests/test_submissions.py` (7) + `tests/test_migrations.py`; frozen packages, manual handoff, capability discovery, approval-bound durable task, receipt reconciliation, Alembic migration |
 | 08 | Personalized cold-email drafts | done (offline drafts only; delivery is step 09) | `tests/test_outreach.py` (6); vacancy and startup templates, confirmed evidence, immutable attachment, revisions and approval invalidation |
+| 09 | Email delivery, replies and follow-ups | partial (Gmail send/reply polling fixture-complete; follow-ups disabled; live blocked) | `tests/test_gmail_delivery.py` plus outreach/migration tests; encrypted OAuth refresh-token storage, approval-bound durable sends, immutable ledger, suppression, accepted/unknown states and manual reply sync; live Google OAuth/mailbox not configured |
+| 10 | End-to-end integration and release readiness | partial | `docs/backend/operations.md`, Gmail API/UI contracts and operational limitation audit; step 06 remains unimplemented, no verified restore/metrics/retention job, live PostgreSQL/Redis and full UI journey remain unverified |
+
+## Step 09 — Gmail send and reply tracking
+
+- Added an opt-in Gmail OAuth authorization-code flow with state values stored
+  as hashes for ten minutes and single use. Refresh tokens are encrypted at
+  rest with a configured Fernet key and removed/revoked on disconnect.
+- Added `outreach.send` durable tasks bound to the draft's current payload
+  hash. The worker checks account state, provider kill switch, suppression,
+  UTC quiet hours and a database-backed daily cap, then snapshots the exact
+  recipient, copy and optional attachment. Existing task approval/policy
+  checks run before the provider call.
+- Gmail's `messages.send` response is recorded as `accepted`, not delivered.
+  A network ambiguity becomes `unknown`; redelivery searches the stable
+  RFC822 Message-ID and never repeats the send. Gmail polling uses thread
+  retrieval and idempotent provider message event keys; replies and recognized
+  bounce/opt-out content suppress future sends. Reply polling is user-triggered.
+- Configured Gmail OAuth consent, the Google API and an owned mailbox are
+  absent. Live verification is blocked. Automatic follow-up sends and Gmail
+  Pub/Sub notifications are intentionally not enabled; the UI discloses manual
+  sync and provider-acceptance semantics.
+- New checks: `cd backend && PYTHONPATH=. .venv/bin/pytest -q
+  tests/test_gmail_delivery.py tests/test_outreach.py tests/test_migrations.py`
+  — 18 passed. These use SQLite and a mocked provider; they do not prove real
+  provider behavior or PostgreSQL locking.
+
+## Step 10 — Runbook and integration readiness audit
+
+- Added `docs/backend/operations.md` with local startup, vacancy/startup
+  walkthrough, provider setup, migration/backup/restore/rollback, secret
+  rotation, kill switch and verification instructions. The Integrations page
+  can connect/disconnect Gmail and trigger reply polling.
+- The walkthrough explicitly calls out that step 06 contact research is
+  missing. Contact identity must be independently reviewed and supplied by
+  the user. The full contact-to-submission/email outcome path therefore is not
+  claimed complete. No deployment was performed.
+- Remaining release gates: run the full backend/frontend suite; run migration
+  and concurrency tests on disposable PostgreSQL; run Redis tests; build true
+  vacancy and startup E2E journeys; implement user-facing retention/deletion,
+  metrics/budget reporting and automated backup/restore checks; configure and
+  verify Gmail OAuth with an owned test mailbox. Production readiness is not
+  established.
 
 ## Step 02 — PostgreSQL verification of the durable task engine
 
