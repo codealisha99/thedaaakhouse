@@ -52,3 +52,8 @@ class DraftOut(BaseModel):
     status: str
     approval_invalidated: bool = False
 
+
+class SuppressionIn(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    reason: Literal["manual", "opt_out"] = "manual"
+

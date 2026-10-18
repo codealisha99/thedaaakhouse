@@ -1,6 +1,6 @@
 # Codebase map
 
-Snapshot: 2026-10-18. Paths below are relative to the repository root. “Implemented” means code exists; external integrations and runtime behavior were not certified by this documentation pass.
+Snapshot: 2026-10-18, after steps 09–10 changes. Paths below are relative to the repository root. The Gmail adapter has fixture coverage but has not been verified against a live account; see [implementation progress](implementation-progress.md).
 
 ## Stack and execution
 
@@ -27,6 +27,7 @@ Snapshot: 2026-10-18. Paths below are relative to the repository root. “Implem
 | Resume exports | `resume/pdf.py`, `resume/latex/`, `api/routes/optimize.py` | PDF export and conditional `pdflatex` compilation exist; some LaTeX AST methods remain stubs |
 | Company research | `analysis/company.py`, `ingestion/web_loader.py` | User-supplied website fetch and source-attached extracted statements; no founder/contact discovery pipeline |
 | Interview and learning | `api/routes/arena.py`, `api/routes/learn.py`, analysis modules | Existing features to preserve while expanding backend |
+| Outreach drafts and Gmail delivery | `app/outreach/`, `api/routes/outreach.py`, `api/routes/integrations.py` | Owner-scoped versioned drafts; optional approval-bound Gmail API send, encrypted refresh tokens, accepted/unknown outcomes and manual reply sync; no automatic follow-up or live provider verification |
 | AI adapters | `ai/providers/`, `ai/structured_output.py` | Provider abstractions exist; Grok is a disabled placeholder; do not assume every product workflow uses an LLM |
 | Future endpoints | `api/routes/future.py` | Some routes explicitly return 501; similarly named functionality exists through application routes |
 
@@ -46,10 +47,10 @@ Application statuses are `saved`, `applied`, `oa`, `interview`, `final_round`, `
 1. **Ownership was not uniformly strict.** *(Fixed in step 01.)* Every service now scopes to the authenticated user; `user_id = NULL` rows are quarantined and claimable only via `backend/scripts/claim_legacy_records.py` (see [ownership-policy.md](ownership-policy.md)). New code must not reintroduce `(None, user.id)`-style filters.
 2. **Fetch protections differed.** *(Fixed in step 01.)* `ingestion/web_loader.py` and `analysis/jobpage.py` both fetch through `ingestion/safe_fetch.py` — one bounded, SSRF-guarded fetcher with connect-time DNS pinning and per-hop redirect validation. New fetch callers must use `safe_fetch`, not `httpx` directly.
 3. **Startup schema creation is not migration validation.** `db/database.py:init_db()` uses `create_all`; production changes must run explicit Alembic migrations. Verify the existing revision graph before adding revisions. Never use `stamp head` as a substitute for applying unknown schema changes.
-4. **No durable workflow engine.** Long operations currently run through request/service paths; Redis is reserved but workers, run records, leases and retry reconciliation are missing.
-5. **No application-submit or email provider implementation.** Scheduled job discovery now exists (`app/discovery/`, step 03). Tracker status changes are not proof that a real application was submitted.
+4. **Durable workflow engine exists.** PostgreSQL is authoritative; `app/workflows/` includes task rows, outbox, workers, finite retries and approvals. Redis concurrency/transport verification remains opt-in.
+5. **Submission and email providers remain limited.** The application adapter is a controlled test destination. Gmail is opt-in and live-unverified; tracker status or Gmail API acceptance is not proof of application/email delivery.
 6. **Structured evidence is incomplete.** Existing raw text, parsed sections and career profiles need a consistent evidence model before generated claims or form answers can be trusted.
-7. **Older docs mix milestones and current behavior.** README planned PDF/DOCX extraction and LaTeX descriptions lag actual code. Older architecture/data-model files describe an earlier subset. Use this snapshot and source inspection when executing the new plan.
+7. **Step 06 contact discovery is not implemented.** Recipient identity/source review remains a user-provided prerequisite for outreach; see the operations runbook.
 
 ## Useful inspection and validation commands
 

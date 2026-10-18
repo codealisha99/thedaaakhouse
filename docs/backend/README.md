@@ -2,7 +2,7 @@
 
 Build a job-search assistant that discovers relevant vacancies, prepares truthful tailored resumes, helps submit applications, and finds appropriate business contacts for startup outreach—even when no vacancy is advertised.
 
-This documentation was prepared from the repository on 2026-10-18. It is a code-reading assessment and implementation specification, not a claim that new features have shipped or that the test suite has passed.
+This documentation was prepared from the repository on 2026-10-18. Steps 01–05 and 07–08 are implemented with the verification noted in [implementation progress](implementation-progress.md). Step 09 has an opt-in Gmail adapter with offline fixtures; live OAuth and mailbox behavior are unverified. Step 06 and release-grade portions of step 10 remain incomplete. See the [operations runbook](operations.md); this repository is not production-ready.
 
 ## Start here
 
@@ -31,7 +31,7 @@ flowchart TD
 
 “High ATS score” means improving this application's explainable compatibility estimate without inventing experience. “Less crowded jobs” means observed applicant counts when available, plus clearly labeled visibility signals when counts are unavailable. Neither score guarantees an interview.
 
-The first usable release supports discovery, ranking, tailored documents, contact research, and drafts. Later steps add real submission and email adapters with durable delivery tracking. Users can authorize individual actions or a bounded automation policy; the backend checks that authority at execution time.
+The current code supports discovery, ranking, tailored documents, application packages, and editable outreach drafts. A Gmail adapter is opt-in and approval-gated, with accepted/unknown send tracking and manual reply polling. User-authorized actions are checked by the durable worker. Contact research and production release operations still need work.
 
 ## Two ways the product finds work
 
@@ -57,5 +57,8 @@ Paste the master prompt from [build-prompts.md](build-prompts.md) once. Then run
 | 08 | Write the cold email | Vacancy emails and no-opening introductions are editable drafts. Creating a draft never sends it. |
 | 09 | Send the email and track replies | A reply, bounce, or opt-out stops follow-ups. A provider accepting the message is not the same as the person reading it. |
 | 10 | Run both paths end to end and write the operations guide | A local walkthrough works, and the report says what was really tested. |
+
+The table above is the target build sequence. Current implementation status and
+unverified dependencies are tracked in [implementation progress](implementation-progress.md).
 
 Do not start step 03 until steps 01 and 02 exist. Later steps depend on the task runner, the safe fetcher, and the saved resume evidence.

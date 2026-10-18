@@ -1,13 +1,16 @@
 """Outreach draft endpoints. Drafting/previewing is local and never sends."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user
 from app.db import models
 from app.db.database import get_db
-from app.schemas.outreach import DraftCreateIn, DraftOut, DraftPatchIn
+from app.schemas.outreach import DraftCreateIn, DraftOut, DraftPatchIn, SuppressionIn
 from app.outreach.service import DraftError, OutreachService
+from app.outreach.delivery_models import EmailAccount, OutreachDeliveryEvent, OutreachSend, OutreachSuppression
+from app.outreach.gmail import GmailError, add_suppression
+from app.workflows.service import TaskService, TaskConflict
 
 router = APIRouter(prefix="/api/outreach", tags=["outreach"])
 
@@ -75,3 +78,53 @@ def edit_draft(draft_id: str, payload: DraftPatchIn, db: Session = Depends(get_d
     except DraftError as err:
         raise _error(err) from None
     return _out(row, approval_invalidated=invalidated)
+
+
+@router.post("/drafts/{draft_id}/send", status_code=202)
+def send_draft(draft_id: str, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+               db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    if not idempotency_key:
+        raise HTTPException(400, detail="Idempotency-Key header is required")
+    draft = OutreachService(db, user.id).get(draft_id)
+    if draft is None: raise HTTPException(404, detail={"code": "draft_not_found", "detail": "draft not found"})
+    account = db.query(EmailAccount).filter_by(user_id=user.id, status="connected").first()
+    if account is None: raise HTTPException(409, detail={"code": "gmail_disconnected", "detail": "connect Gmail first"})
+    payload = {"draft_id": draft.id, "payload_sha256": draft.payload_sha256}
+    if db.query(OutreachSuppression).filter_by(user_id=user.id, email=draft.recipient_email.lower()).first():
+        raise HTTPException(409, detail={"code": "recipient_suppressed", "detail": "recipient is suppressed"})
+    try:
+        task, replayed = TaskService(db, user.id).enqueue("outreach.send", payload, idempotency_key=idempotency_key)
+    except TaskConflict as exc:
+        raise HTTPException(409, detail={"code": "idempotency_conflict", "existing_task_id": exc.existing_task_id}) from None
+    return {"task_id": task.id, "status": task.status, "poll_url": f"/api/tasks/{task.id}", "replayed": replayed,
+            "draft_id": draft.id, "payload_sha256": draft.payload_sha256}
+
+
+@router.get("/sends")
+def list_sends(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    rows = db.query(OutreachSend).filter_by(user_id=user.id).order_by(OutreachSend.created_at.desc()).limit(100).all()
+    return [{"id": r.id, "draft_id": r.draft_id, "status": r.status, "provider_message_id": r.provider_message_id,
+             "payload_sha256": r.payload_sha256, "created_at": r.created_at, "events": [
+                 {"kind": e.kind, "occurred_at": e.occurred_at} for e in db.query(OutreachDeliveryEvent).filter_by(send_id=r.id).order_by(OutreachDeliveryEvent.occurred_at).all()]}
+            for r in rows]
+
+
+@router.get("/sends/{send_id}")
+def get_send(send_id: str, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    row = db.query(OutreachSend).filter_by(id=send_id, user_id=user.id).first()
+    if row is None: raise HTTPException(404, detail="send not found")
+    return {"id": row.id, "draft_id": row.draft_id, "status": row.status,
+            "provider_message_id": row.provider_message_id, "thread_id": row.thread_id,
+            "payload_sha256": row.payload_sha256, "payload_snapshot": row.payload_snapshot,
+            "events": [{"kind": e.kind, "occurred_at": e.occurred_at, "detail": e.detail}
+                       for e in db.query(OutreachDeliveryEvent).filter_by(send_id=row.id).order_by(OutreachDeliveryEvent.occurred_at).all()]}
+
+
+@router.post("/suppressions", status_code=201)
+def suppress_recipient(payload: SuppressionIn, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    email = payload.email.strip().lower()
+    reason = payload.reason
+    if "@" not in email or len(email) > 320: raise HTTPException(422, detail="valid email required")
+    try: add_suppression(db, user.id, email, reason)
+    except GmailError as exc: raise HTTPException(422, detail=str(exc)) from None
+    return {"suppressed": True, "email": email, "reason": reason}
