@@ -154,6 +154,9 @@ Existing routes continue working. New async work returns HTTP 202 with `{task_id
 | `POST /api/applications/{id}/submit` | Queue authorized submission |
 | `GET /api/applications/{id}/submissions` | Submission history, receipts and handoff information |
 | `POST /api/outreach/drafts` | Generate sourced draft from opportunity/contact |
+| `GET /api/outreach/drafts` | List owner-scoped drafts |
+| `GET /api/outreach/drafts/{id}` | Preview current recipient, body, evidence and attachment hash |
+| `POST /api/outreach/drafts/{id}/preview` | Return the exact offline send preview |
 | `PATCH /api/outreach/drafts/{id}` | Edit draft and invalidate old approval |
 | `POST /api/outreach/drafts/{id}/send` | Queue authorized email |
 | `GET /api/outreach/messages/{id}` | Send, delivery and reply state |

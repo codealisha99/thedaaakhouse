@@ -1,7 +1,8 @@
 # Implementation progress
 
 Living status note. Yes = verified by a test in this repo; Not yet = exists
-only as scaffolding. Last reviewed after **build step 05** (truthful tailored
+only as scaffolding. Last reviewed after **build steps 07–08** (application
+submissions and offline outreach drafts), **step 05** (truthful tailored
 resumes), **step 03** (scheduled job discovery), and **step 02 verification**
 (durable tasks crashed-safe under real PostgreSQL).
 
@@ -14,6 +15,8 @@ resumes), **step 03** (scheduled job discovery), and **step 02 verification**
 | 03 | Scheduled job discovery | done | `tests/test_discovery.py` (38) + discovery tables in `tests/test_migrations.py`; cross-site dedup, dedup review band, absence-only-on-complete-scans, scheduler tick, source CRUD/run API all pass |
 | 04 | Opportunity ranking + no-opening startups | done | `tests/test_opportunities.py` passes (score gate + dedupe) |
 | 05 | Truthful tailored resumes + readable exports | done | this document below |
+| 07 | Application packages and supported submission | done (live integration limited to controlled test destination) | `tests/test_submissions.py` (7) + `tests/test_migrations.py`; frozen packages, manual handoff, capability discovery, approval-bound durable task, receipt reconciliation, Alembic migration |
+| 08 | Personalized cold-email drafts | done (offline drafts only; delivery is step 09) | `tests/test_outreach.py` (6); vacancy and startup templates, confirmed evidence, immutable attachment, revisions and approval invalidation |
 
 ## Step 02 — PostgreSQL verification of the durable task engine
 
@@ -79,6 +82,93 @@ fixes:
 - The runtime DB mode is normalized (`postgresql+psycopg2`), but production
   Postgres connections were exercised only through this disposable test
   database; a deployed instance has never been pressure-tested.
+
+## Step 07 — Application packages and supported submission
+
+### Implemented
+
+- **Frozen package and preview** (`app/submissions/service.py`): the
+  application, selected resume text, form questions, answers, destination and
+  SHA-256 hashes are snapshotted. Required unanswered questions produce
+  `needs_input`; sensitive test form questions are never inferred. Resume
+  versions are owner-checked, including the version already attached to an
+  application.
+- **Honest adapter boundary** (`app/submissions/adapters/`): unsupported
+  destinations resolve to manual handoff with an actionable URL and
+  instruction. The only live adapter is a test destination enabled by the
+  exact `SUBMISSION_TEST_URL`; its HTTP transport is injectable for fixtures.
+  No real job-board integration is claimed.
+- **Durable authorized send**: submission stores the exact package and resume
+  snapshot, obtains a one-shot approval bound to task payload and artifact
+  hash, then queues through the task/outbox engine. Replays with the same
+  idempotency key return the original attempt, including terminal attempts;
+  conflicting payloads fail. Concurrent insert races resolve to the winning
+  record.
+- **Worker safeguards and receipts**: before the external effect, the worker
+  rechecks frozen package integrity, linked resume integrity, task state and
+  adapter configuration. Definitive refusal becomes `failed`; ambiguous
+  timeout becomes `unknown` and is never automatically resent. Receipt lookup
+  or an affirmative absence can reconcile that state. Only a confirmed
+  receipt marks the application `applied` and records the artifact hash.
+- **API and schema**: prepare, submit, history, detail, cancel and reconcile
+  routes live under `/api/applications/{id}`. Migration
+  `e1a7c4b902d6_application_submissions.py` creates the history table,
+  ownership FKs, idempotency uniqueness and active-package uniqueness. Both
+  SQLite startup metadata and Alembic metadata load the model.
+
+### Limits
+
+- Live sending is intentionally limited to an explicitly configured,
+  operator-controlled test endpoint. There is no provider with access to
+  submit applications to real vacancies.
+- The step 07 fixture proves the controlled endpoint contract only; no real
+  vacancy or production destination was contacted.
+
+## Step 08 — Personalized cold-email drafts
+
+### Implemented
+
+- **Offline draft API** (`app/api/routes/outreach.py`): authenticated create,
+  list, get, preview and edit endpoints under `/api/outreach/drafts`. Draft
+  creation does not enqueue a task or send email.
+- **Two distinct modes** (`app/outreach/service.py`): vacancy messages refer
+  only to the sourced role/company; startup introductions do not claim an
+  opening. Deterministic templates run locally with no model/provider
+  dependency. External source notes are carried as review metadata and are
+  never interpreted as instructions or copied into the email.
+- **Truthfulness and traceability**: candidate contributions can only be
+  selected from owner-scoped, user-confirmed `CandidateEvidence`; each
+  contribution retains its evidence ID, source line and exact source text.
+  Recipient address, source, source method and known/unknown identity stay
+  outside the body. Inferred addresses are always marked unknown, and
+  missing identity/source and missing attachment are returned as factuality
+  findings.
+- **Versioned immutable attachment**: selected resume-version text and hash
+  are frozen on the draft. Every edit updates the payload hash, stores an
+  immutable revision snapshot, and revokes active approvals referring to the
+  old draft payload.
+- **Migration** `f23d8a1b72c4_versioned_outreach_drafts.py` adds draft and
+  revision tables with owner, opportunity and resume foreign keys.
+
+### Limits
+
+- Step 06 contact discovery is not present in this checkout. Draft creation
+  therefore accepts a user-supplied recipient and source; it does not claim
+  to discover or verify contacts.
+- Email account connections and delivery belong to step 09 and are not
+  implemented here. Drafts remain editable and unsent.
+- Editing body or subject adds a factual-review finding; send-time claim
+  enforcement and provider delivery status must be completed with step 09.
+
+### Verification
+
+- Focused: `PYTHONPATH=backend backend/.venv/bin/pytest -q
+  backend/tests/test_submissions.py backend/tests/test_outreach.py
+  backend/tests/test_migrations.py` → 19 passed.
+- Full backend: `PYTHONPATH=backend backend/.venv/bin/pytest -q
+  backend/tests` → 313 passed, 11 skipped. The skipped modules require
+  opt-in PostgreSQL/Redis services. One existing Starlette deprecation
+  warning and pytest-asyncio fixture-loop warning were reported.
 
 ## Step 05 — Truthful tailored resumes and reliable exports
 

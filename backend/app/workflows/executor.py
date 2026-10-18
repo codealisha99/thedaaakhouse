@@ -33,6 +33,9 @@ from app.workflows import handlers
 from app.workflows.clock import aware, utcnow
 from app.workflows.models import ActionApproval, OutboxEvent, TaskRun
 from app.workflows.service import audit
+# Register external side-effect handlers in every worker process, not just
+# the API process that imports application routes.
+import app.submissions.service  # noqa: F401
 
 log = get_logger(__name__)
 

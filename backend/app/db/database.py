@@ -109,6 +109,8 @@ def init_db(engine=None, db_settings=None) -> None:
     # Import every model module so Base.metadata is fully populated.
     import app.db.models  # noqa: F401
     import app.discovery.models  # noqa: F401
+    import app.submissions.models  # noqa: F401
+    import app.outreach.models  # noqa: F401
     import app.workflows.models  # noqa: F401
 
     if s.is_postgres:
