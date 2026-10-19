@@ -29,9 +29,8 @@
   --grid-dot: rgba(127, 209, 139, 0.08);
 }
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.ts";
 
 body {
   background-color: var(--bg);
