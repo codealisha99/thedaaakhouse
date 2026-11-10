@@ -1,17 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
+import {
+  Badge, Button, DefList, ErrorState, Field, LoadingBlock, Meter, Notice, PageHeader, Panel, PanelHeader, cx, textareaCls, type Tone,
+} from "@/components/ds";
 import { api } from "@/lib/api";
-import type { StudyPlan, TopicAnswer } from "@/types";
+import type { StudyPlan, StudyTopic, TopicAnswer } from "@/types";
 
-const STATUS_STYLE: Record<string, string> = {
-  not_started: "bg-slate-100 text-slate-600",
-  in_progress: "bg-blue-100 text-blue-800",
-  mastered: "bg-emerald-100 text-emerald-800",
-  needs_revision: "bg-amber-100 text-amber-800",
+const STATUS_TONE: Record<string, Tone> = {
+  not_started: "neutral", in_progress: "brand", mastered: "ok", needs_revision: "warn",
 };
 
-export default function PlanDetail({ params }: { params: { id: string } }) {
+export default function PlanDetail({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const [plan, setPlan] = useState<StudyPlan | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -21,19 +22,19 @@ export default function PlanDetail({ params }: { params: { id: string } }) {
 
   const load = useCallback(async () => {
     try {
-      setPlan(await api.getPlan(params.id));
+      setPlan(await api.getPlan(id));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Load failed.");
     }
-  }, [params.id]);
+  }, [id]);
 
   useEffect(() => { load(); }, [load]);
 
   async function submitAnswer(term: string) {
     setBusy(true);
     try {
-      const res = await api.answerTopic(params.id, term, drafts[term] ?? "");
+      const res = await api.answerTopic(id, term, drafts[term] ?? "");
       setResults((r) => ({ ...r, [term]: res }));
       await load();
     } catch (e) {
@@ -47,71 +48,127 @@ export default function PlanDetail({ params }: { params: { id: string } }) {
     }
   }
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
-  if (!plan) return <p className="text-sm text-slate-500">Loading…</p>;
+  if (!plan) {
+    return (
+      <div className="mx-auto max-w-5xl">
+        {error ? <ErrorState message={error} onRetry={load} /> : <LoadingBlock rows={3} />}
+      </div>
+    );
+  }
+
+  const mastered = plan.topics.filter((t) => t.progress.status === "mastered").length;
+  const newCount = plan.topics.filter((t) => !t.known).length;
+  // Server already ranks missing terms first; the path follows that order.
+  const ordered = [...plan.topics].sort((a, b) => a.order - b.order);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-3">
-      <div>
-        <h2 className="text-xl font-bold tracking-tight">{plan.title}</h2>
-        <p className="text-sm text-slate-500">
-          {plan.topics.filter((t) => t.progress.status === "mastered").length}/{plan.topics.length} mastered
-        </p>
+    <div className="mx-auto max-w-5xl">
+      <PageHeader
+        eyebrow="Study plan"
+        title={plan.title}
+        description={`${mastered} of ${plan.topics.length} topics mastered.`}
+      />
+      {error && <Notice tone="bad" className="mb-5">{error}</Notice>}
+      <div className="grid items-start gap-5 lg:grid-cols-[260px_1fr]">
+        <Panel className="lg:sticky lg:top-6">
+          <PanelHeader title="Mastery" />
+          <Meter value={mastered} max={Math.max(plan.topics.length, 1)} tone="ok" label="Topics mastered" />
+          <p className="mt-2 font-mono text-[13px] tabular text-ink-2">{mastered} of {plan.topics.length} mastered</p>
+          <div className="mt-5">
+            <DefList items={[
+              { label: "New terms", value: <span className="font-mono tabular">{newCount}</span> },
+              { label: "Revision", value: <span className="font-mono tabular">{plan.topics.length - newCount}</span> },
+            ]} />
+          </div>
+        </Panel>
+        <ol className="stagger space-y-3">
+          {ordered.map((t) => (
+            <TopicRow
+              key={t.term}
+              topic={t}
+              open={open === t.term}
+              onToggle={() => setOpen(open === t.term ? null : t.term)}
+              draft={drafts[t.term] ?? ""}
+              onDraft={(v) => setDrafts((d) => ({ ...d, [t.term]: v }))}
+              result={results[t.term]}
+              busy={busy}
+              onSubmit={() => submitAnswer(t.term)}
+            />
+          ))}
+        </ol>
       </div>
-      {plan.topics.map((t) => (
-        <div key={t.term} className="rounded-xl border bg-white p-4 text-sm">
-          <button onClick={() => setOpen(open === t.term ? null : t.term)} className="flex w-full items-center justify-between gap-2 text-left">
-            <span>
-              <strong>#{t.order} {t.term}</strong>{" "}
-              <span className="text-xs text-slate-500">
-                {t.known ? "· revision" : "· new"} · {t.progress.attempts} attempt(s)
-              </span>
+    </div>
+  );
+}
+
+type TopicRowProps = {
+  topic: StudyTopic;
+  open: boolean;
+  onToggle: () => void;
+  draft: string;
+  onDraft: (v: string) => void;
+  result?: TopicAnswer;
+  busy: boolean;
+  onSubmit: () => void;
+};
+
+function TopicRow({ topic, open, onToggle, ...body }: TopicRowProps) {
+  const status = topic.progress.status;
+  return (
+    <li className="relative pl-10">
+      <span aria-hidden="true" className="absolute left-0 top-3.5 flex size-7 items-center justify-center rounded-full border border-line-strong bg-surface font-mono text-[12px] tabular text-ink-2">
+        {topic.order}
+      </span>
+      <Panel padded={false} className={cx(open && "border-line-strong")}>
+        <button type="button" aria-expanded={open} onClick={onToggle}
+          className="flex min-h-12 w-full flex-wrap items-center justify-between gap-2 px-4 py-3 text-left">
+          <span className="min-w-0">
+            <span className="block font-medium text-ink">{topic.term}</span>
+            <span className="mt-0.5 block text-[13px] text-ink-3">
+              {topic.known ? "Revision" : "New"} · <span className="font-mono tabular">{topic.progress.attempts}</span> attempt(s)
             </span>
-            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[t.progress.status] ?? STATUS_STYLE.not_started}`}>
-              {t.progress.status.replace("_", " ")}
-            </span>
-          </button>
-          {open === t.term && (
-            <div className="mt-3 space-y-3 border-t pt-3">
-              {t.resume_evidence && (
-                <p className="rounded-lg bg-emerald-50 p-2 text-xs">Your evidence: {t.resume_evidence}</p>
-              )}
-              {t.levels.map((l) => (
-                <div key={l.name}>
-                  <p className="font-semibold">{l.name}</p>
-                  <p className="text-slate-600">{l.prompt}</p>
-                </div>
-              ))}
-              <div>
-                <p className="font-semibold">Exercises</p>
-                <ul className="list-disc pl-5 text-slate-600">
-                  {t.exercises.map((e, i) => <li key={i}>{e}</li>)}
-                </ul>
-              </div>
-              <div className="rounded-lg bg-slate-50 p-3">
-                <p className="font-semibold">Knowledge check</p>
-                <p className="text-slate-600">{t.check.question}</p>
-                <textarea
-                  className="mt-2 min-h-20 w-full rounded-lg border px-3 py-2"
-                  placeholder="Write your answer…"
-                  value={drafts[t.term] ?? ""}
-                  onChange={(e) => setDrafts((d) => ({ ...d, [t.term]: e.target.value }))}
-                />
-                <button onClick={() => submitAnswer(t.term)} disabled={busy || !(drafts[t.term] ?? "").trim()}
-                  className="mt-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
-                  Check answer
-                </button>
-                {results[t.term] && (
-                  <div className={`mt-2 rounded-lg p-2.5 ${results[t.term].verdict === "correct" ? "bg-emerald-50" : "bg-amber-50"}`}>
-                    <p><strong>{results[t.term].verdict === "correct" ? "Correct" : "Needs revision"}</strong> ({Math.round(results[t.term].score * 100)}%)</p>
-                    <p>{results[t.term].feedback}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          </span>
+          <Badge tone={STATUS_TONE[status] ?? "neutral"} dot>{status.replace(/_/g, " ")}</Badge>
+        </button>
+        {open && <TopicBody topic={topic} {...body} />}
+      </Panel>
+    </li>
+  );
+}
+
+function TopicBody({ topic, draft, onDraft, result, busy, onSubmit }: Omit<TopicRowProps, "open" | "onToggle">) {
+  return (
+    <div className="space-y-4 border-t border-line px-4 py-4 text-[14px]">
+      {topic.resume_evidence && <Notice tone="ok">Your evidence: {topic.resume_evidence}</Notice>}
+      {topic.levels.map((l) => (
+        <div key={l.name}>
+          <p className="font-medium text-ink">{l.name}</p>
+          <p className="mt-0.5 text-ink-2">{l.prompt}</p>
         </div>
       ))}
+      <div>
+        <p className="font-medium text-ink">Exercises</p>
+        <ul className="mt-1 list-disc space-y-1 pl-5 text-ink-2">
+          {topic.exercises.map((e, i) => <li key={i}>{e}</li>)}
+        </ul>
+      </div>
+      <div className="rounded-md border border-line bg-sunken/50 p-4">
+        <p className="font-medium text-ink">Knowledge check</p>
+        <p className="mt-1 text-ink-2">{topic.check.question}</p>
+        <Field label="Your answer" className="mt-3">
+          <textarea className={textareaCls} placeholder="Write your answer…" value={draft} onChange={(e) => onDraft(e.target.value)} />
+        </Field>
+        <Button className="mt-3" busy={busy} disabled={!draft.trim()} onClick={onSubmit}>Check answer</Button>
+        {result && (
+          <Notice tone={result.verdict === "correct" ? "ok" : "warn"} className="mt-3">
+            <p className="font-medium">
+              {result.verdict === "correct" ? "Correct" : "Needs revision"}{" "}
+              <span className="font-mono tabular">({Math.round(result.score * 100)}%)</span>
+            </p>
+            <p className="mt-1">{result.feedback}</p>
+          </Notice>
+        )}
+      </div>
     </div>
   );
 }

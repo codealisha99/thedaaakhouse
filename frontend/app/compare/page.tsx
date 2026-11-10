@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Letterhead } from "@/components/post/postal";
+import { Badge, Button, Field, Label, Meter, Notice, PageHeader, Panel, PanelHeader, Tag, Tone, selectCls } from "@/components/ds";
+import { StageBadge } from "@/components/route";
 import { api } from "@/lib/api";
 import type { Application, CompareRow } from "@/types";
 
 type Key = "fit" | "ats" | "role";
+
+const FIT_TONE: Record<string, Tone> = { target: "ok", adjacent: "brand", poor: "bad", needs_review: "warn" };
 
 export default function Compare() {
   const [apps, setApps] = useState<Application[]>([]);
@@ -41,58 +44,88 @@ export default function Compare() {
   });
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <Letterhead title="Job Comparison" subtitle="Career fit and resume compatibility, side by side" />
-      <div className="rounded-xl border bg-white p-4 text-sm">
-        <p className="mb-2 font-semibold">Pick up to 8 applications</p>
-        <div className="flex max-h-48 flex-wrap gap-2 overflow-auto">
-          {apps.map((a) => (
-            <label key={a.id} className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 ${picked.includes(a.id) ? "border-violet-600 bg-violet-50" : ""}`}>
-              <input type="checkbox" checked={picked.includes(a.id)} onChange={() => toggle(a.id)} />
-              {a.company} · {a.role}
-            </label>
-          ))}
+    <div className="space-y-8">
+      <PageHeader
+        eyebrow="Compare"
+        title="Compare applications"
+        description="Career fit and resume compatibility, side by side. Fit and ATS answer different questions, so they are scored separately."
+      />
+      <Panel className="space-y-5">
+        <PanelHeader title="Pick up to 8 applications" meta={`${picked.length} selected`} />
+        <div className="scroll-quiet flex max-h-64 flex-wrap gap-2 overflow-auto">
+          {apps.map((a) => {
+            const on = picked.includes(a.id);
+            return (
+              <label key={a.id} className={`flex min-h-9 cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors duration-[var(--dur-1)] ${on ? "border-brand/40 bg-brand/5 text-ink" : "border-line-strong bg-surface text-ink-2 hover:border-ink-3"}`}>
+                <input type="checkbox" checked={on} onChange={() => toggle(a.id)} className="size-4 accent-brand" />
+                {a.company} · {a.role}
+              </label>
+            );
+          })}
         </div>
-        <div className="mt-3 flex items-center gap-2">
-          <button onClick={run} disabled={busy || picked.length === 0}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
+        <div className="flex flex-wrap items-end gap-3">
+          <Button variant="accent" onClick={run} disabled={busy || picked.length === 0}>
             {busy ? "Comparing…" : "Compare"}
-          </button>
-          <select value={sort} onChange={(e) => setSort(e.target.value as Key)} className="rounded-lg border px-2 py-1.5 text-sm">
-            <option value="fit">Sort: career fit</option>
-            <option value="ats">Sort: ATS score</option>
-            <option value="role">Sort: role</option>
-          </select>
+          </Button>
+          <Field label="Sort by" className="w-56">
+            <select value={sort} onChange={(e) => setSort(e.target.value as Key)} className={selectCls}>
+              <option value="fit">Career fit</option>
+              <option value="ats">ATS score</option>
+              <option value="role">Role</option>
+            </select>
+          </Field>
         </div>
-      </div>
-      {error && <p className="rounded-lg bg-red-50 p-2.5 text-sm text-red-700">{error}</p>}
+      </Panel>
+      {error && <Notice tone="bad">{error}</Notice>}
       {sorted.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border bg-white">
-          <table className="w-full min-w-max text-sm">
-            <thead>
-              <tr className="bg-slate-100 text-left text-xs uppercase text-slate-500">
-                <th className="px-3 py-2">Job</th>
-                <th className="px-3 py-2">Fit</th>
-                <th className="px-3 py-2">ATS</th>
-                <th className="px-3 py-2">Missing</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((r) => (
-                <tr key={r.application_id} className="border-t">
-                  <td className="px-3 py-2 font-medium">{r.company} · {r.role}</td>
-                  <td className="px-3 py-2">
-                    {r.fit ? `${r.fit.classification.replace("_", " ")} ${(r.fit.score * 100).toFixed(0)}%` : <span className="text-slate-400">unevaluated</span>}
-                  </td>
-                  <td className="px-3 py-2">{r.ats_score != null ? r.ats_score.toFixed(0) : <span className="text-slate-400">—</span>}</td>
-                  <td className="max-w-64 truncate px-3 py-2 text-xs text-slate-500">{r.missing_skills.join(", ") || "—"}</td>
+        <Panel padded={false} className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-sunken text-left">
+                <tr>
+                  <th className="px-4 py-2.5 font-normal"><Label>Job</Label></th>
+                  <th className="px-4 py-2.5 font-normal"><Label>Career fit</Label></th>
+                  <th className="px-4 py-2.5 font-normal"><Label>ATS</Label></th>
+                  <th className="px-4 py-2.5 font-normal"><Label>Missing skills</Label></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {sorted.map((r) => (
+                  <tr key={r.application_id} className="border-t border-line align-top">
+                    <td className="px-4 py-3.5">
+                      <p className="font-medium text-ink">{r.company}</p>
+                      <p className="text-[13px] text-ink-3">{r.role}</p>
+                      <div className="mt-2"><StageBadge status={r.status} /></div>
+                    </td>
+                    <td className="px-4 py-3.5">
+                      {r.fit ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge tone={FIT_TONE[r.fit.classification] ?? "neutral"} className="capitalize">{r.fit.classification.replace("_", " ")}</Badge>
+                          <span className="font-mono tabular text-ink-2">{(r.fit.score * 100).toFixed(0)}%</span>
+                        </div>
+                      ) : <span className="text-ink-3">Unevaluated</span>}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      {r.ats_score != null ? (
+                        <div className="w-24 space-y-1.5">
+                          <p className="font-mono tabular text-ink">{r.ats_score.toFixed(0)}</p>
+                          <Meter value={r.ats_score} />
+                        </div>
+                      ) : <span className="text-ink-3">—</span>}
+                    </td>
+                    <td className="min-w-48 px-4 py-3.5">
+                      {r.missing_skills.length === 0
+                        ? <span className="text-ink-3">None</span>
+                        : <div className="flex flex-wrap gap-1.5">{r.missing_skills.map((s) => <Tag key={s} tone="bad">{s}</Tag>)}</div>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
       )}
-      <p className="text-xs text-slate-500">Fit = career alignment from your profile. ATS = resume-vs-JD compatibility. Different questions, different scores.</p>
+      <p className="text-[13px] text-ink-3">Fit = career alignment from your profile. ATS = resume-vs-JD compatibility.</p>
     </div>
   );
 }

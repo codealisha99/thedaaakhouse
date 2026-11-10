@@ -1,113 +1,269 @@
-/* ---------- thedaaakhouse retro-terminal tokens ---------- */
+@import "tailwindcss";
+
+/* Dark mode follows the .dark class on <html> (toggled in the shell). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------- Registered Post tokens (see docs/design/design-direction.md) ---------- */
 :root {
-  --bg: #edeadb;
-  --surface: #f6f3e6;
-  --sage: #dde3d2;
-  --green: #1f5f2e;
-  --green-deep: #14401f;
-  --ink: #1b2a1f;
-  --muted: #4f5f52;
-  --accent: #e0b93a;
-  --danger: #b3261e;
-  --ok: #1f5f2e;
-  --shadow: #14401f;
-  --grid-dot: rgba(31, 95, 46, 0.12);
+  --bg: #f4f1ea;
+  --surface: #fbf9f4;
+  --sunken: #ece8de;
+  --line: #ddd7ca;
+  --line-strong: #c5bdac;
+  --ink: #16181d;
+  --ink-2: #45484f;
+  --ink-3: #64666e;
+  --brand: #1d2b45;
+  --accent: #c8401f;
+  --accent-hover: #ad3519;
+  --on-accent: #ffffff;
+  --on-ink: #f4f1ea;
+  --ok: #2e7d4f;
+  --warn: #9a5f0c;
+  --bad: #b3261e;
+
+  --stage-drafted: #7a7c84;
+  --stage-posted: #2f5e9e;
+  --stage-transit: #9a5f0c;
+  --stage-out: #6b4fa3;
+  --stage-delivered: #2e7d4f;
+  --stage-return: #b3261e;
+  --stage-dead: #8e8c86;
+
+  --shadow-1: 0 1px 0 rgb(22 24 29 / 0.03), 0 1px 2px rgb(22 24 29 / 0.06);
+  --shadow-2: 0 2px 4px rgb(22 24 29 / 0.04), 0 12px 32px -12px rgb(22 24 29 / 0.18);
+  --shadow-pop: 0 4px 12px rgb(22 24 29 / 0.08), 0 24px 64px -16px rgb(22 24 29 / 0.28);
+
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 360ms;
+  color-scheme: light;
 }
 
 .dark {
-  --bg: #0f1a12;
-  --surface: #16241a;
-  --sage: #1d2f22;
-  --green: #7fd18b;
-  --green-deep: #7fd18b;
-  --ink: #e6ebdd;
-  --muted: #a9b8a9;
-  --accent: #e0b93a;
-  --danger: #ff8a80;
-  --ok: #7fd18b;
-  --shadow: #000000;
-  --grid-dot: rgba(127, 209, 139, 0.08);
+  --bg: #0f1013;
+  --surface: #17181c;
+  --sunken: #0b0c0e;
+  --line: #26282e;
+  --line-strong: #383b44;
+  --ink: #eeebe3;
+  --ink-2: #b9b6ae;
+  --ink-3: #8e8c86;
+  --brand: #a9bce3;
+  --accent: #f07150;
+  --accent-hover: #f58a6d;
+  --on-accent: #16181d;
+  --on-ink: #0f1013;
+  --ok: #6fcb94;
+  --warn: #e3a94b;
+  --bad: #ff8a7a;
+
+  --stage-drafted: #9a9890;
+  --stage-posted: #7fa6e6;
+  --stage-transit: #e3a94b;
+  --stage-out: #b79cf0;
+  --stage-delivered: #6fcb94;
+  --stage-return: #ff8a7a;
+  --stage-dead: #6e6c67;
+
+  --shadow-1: 0 1px 0 rgb(0 0 0 / 0.3);
+  --shadow-2: 0 12px 32px -12px rgb(0 0 0 / 0.6);
+  --shadow-pop: 0 24px 64px -16px rgb(0 0 0 / 0.75);
+  color-scheme: dark;
 }
 
-@import "tailwindcss";
-@config "../tailwind.config.ts";
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-brand: var(--brand);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
+  --color-on-ink: var(--on-ink);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
 
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
+  --font-display: var(--font-instrument), ui-serif, Georgia, serif;
+
+  --shadow-1: var(--shadow-1);
+  --shadow-2: var(--shadow-2);
+  --shadow-pop: var(--shadow-pop);
+
+  --ease-out: var(--ease-out);
+  --ease-in-out: var(--ease-in-out);
+}
+
+/* ---------- Base ---------- */
+@layer base {
+html { -webkit-text-size-adjust: 100%; }
 body {
-  background-color: var(--bg);
-  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1.5px);
-  background-size: 20px 20px;
+  background: var(--bg);
   color: var(--ink);
+  font-feature-settings: "ss01", "cv11";
+  text-rendering: optimizeLegibility;
+}
+::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+::placeholder { color: var(--ink-3); opacity: 1; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
-/* hard pressable button */
-.btn-hard {
-  transition: transform 0.08s ease, box-shadow 0.08s ease;
-}
-.btn-hard:hover {
-  transform: translate(2px, 2px);
-  box-shadow: 2px 2px 0 var(--shadow) !important;
-}
-.btn-hard:active {
-  transform: translate(4px, 4px);
-  box-shadow: 0 0 0 var(--shadow) !important;
 }
 
-/* card hover lift */
-.card-lift {
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
-}
-.card-lift:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0 var(--shadow);
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Dashed "tear line" used on slips. */
+.tear {
+  height: 1px;
+  background-image: linear-gradient(to right, var(--line-strong) 50%, transparent 50%);
+  background-size: 8px 1px;
 }
 
-/* page fade-in */
-@keyframes page-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* Thin, quiet scrollbars inside panels. */
+.scroll-quiet { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+
+/* ---------- Motion ---------- */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
 }
-.page-fade {
-  animation: page-fade 0.15s ease-out both;
+.rise-in { animation: rise-in var(--dur-3) var(--ease-out) both; }
+.stagger > * { animation: rise-in var(--dur-3) var(--ease-out) both; }
+.stagger > *:nth-child(2) { animation-delay: 40ms; }
+.stagger > *:nth-child(3) { animation-delay: 80ms; }
+.stagger > *:nth-child(4) { animation-delay: 120ms; }
+.stagger > *:nth-child(5) { animation-delay: 160ms; }
+.stagger > *:nth-child(n + 6) { animation-delay: 200ms; }
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--sunken) 25%, var(--line) 37%, var(--sunken) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 6px;
 }
 
-/* blinking cursor skeleton */
-@keyframes cursor-blink {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
+/* A status stamp lands once: scale down + settle. */
+@keyframes stamp {
+  0% { opacity: 0; transform: scale(1.35) rotate(-4deg); }
+  60% { opacity: 1; transform: scale(0.96) rotate(-4deg); }
+  100% { opacity: 1; transform: scale(1) rotate(-4deg); }
 }
-.cursor-blink {
-  animation: cursor-blink 1s steps(1) infinite;
+.stamp { animation: stamp 420ms var(--ease-out) both; }
+
+/* Current stop on a route: a single ring that expands once. */
+@keyframes ping-once {
+  from { transform: scale(1); opacity: 0.55; }
+  to { transform: scale(2.6); opacity: 0; }
+}
+.ping-once::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: ping-once 1.2s var(--ease-out) 0.3s 2 both;
 }
 
-/* single error shake */
-@keyframes shake-once {
+@keyframes shake {
   0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-2px); }
-  75% { transform: translateX(2px); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
 }
-.shake-once {
-  animation: shake-once 0.18s linear 1;
-}
+.shake { animation: shake 180ms linear 1; }
 
-/* focus visibility */
-.focus-term:focus {
-  outline: 3px solid var(--accent);
-  outline-offset: 2px;
+/* Route progress drawn along a line (landing hero, tracking slip). */
+@keyframes draw {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
 }
-.focus-term:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 2px;
-}
+.draw { transform-origin: left; animation: draw 1.4s var(--ease-in-out) 0.2s both; }
 
-::placeholder {
-  color: var(--muted);
-  opacity: 0.85;
+@keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dialog-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
 }
+@keyframes drawer-in { from { transform: translateX(-100%); } to { transform: none; } }
+.overlay-in { animation: overlay-in var(--dur-2) var(--ease-out) both; }
+.dialog-in { animation: dialog-in var(--dur-2) var(--ease-out) both; }
+.drawer-in { animation: drawer-in var(--dur-3) var(--ease-out) both; }
+
+/* Scroll reveal (landing): elements start hidden only when JS has run. */
+.js [data-reveal] { opacity: 0; transform: translateY(16px); transition: opacity 700ms var(--ease-out), transform 700ms var(--ease-out); }
+.js [data-reveal].is-visible { opacity: 1; transform: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .page-fade { animation-duration: 0.01ms; }
-  .cursor-blink { animation: none; opacity: 1; }
-  .btn-hard:hover, .btn-hard:active, .card-lift:hover { transform: none; }
-  .shake-once { animation: none; }
-  *, *::before, *::after { transition-duration: 0.01ms !important; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .js [data-reveal] { opacity: 1; transform: none; }
+  .ping-once::after { display: none; }
 }
+
+/* ---------- Form controls ----------
+ * In the components layer so page-level utilities (h-8, w-auto, text-[13px]…) always override. */
+@layer components {
+  .control {
+    width: 100%;
+    border-radius: 6px;
+    border: 1px solid var(--line-strong);
+    background-color: var(--surface);
+    color: var(--ink);
+    font-size: 14px;
+    box-shadow: var(--shadow-1);
+    transition: border-color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+  }
+  .control:hover { border-color: var(--ink-3); }
+  .control:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+  .control:disabled { opacity: 0.5; }
+  .control[aria-invalid="true"] { border-color: var(--bad); }
+  .control-input { height: 40px; padding: 0 12px; }
+  .control-textarea { min-height: 7rem; padding: 10px 12px; line-height: 1.6; }
+  .control-select {
+    height: 40px;
+    padding: 0 36px 0 12px;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364666e' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 16px;
+  }
+}
+
+input[type="file"] { font-size: 13px; color: var(--ink-2); }
+input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+input[type="file"]::file-selector-button:hover { background: var(--sunken); }

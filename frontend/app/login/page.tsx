@@ -2,16 +2,28 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { SignIn } from "@clerk/nextjs";
 import { api, token } from "@/lib/api";
-import { inputCls } from "@/components/ui";
+import { useAppAuth } from "@/components/auth-provider";
+import { AuthLayout } from "@/components/auth-layout";
+import { Button, Field, inputCls } from "@/components/ds";
 
 export default function Login() {
   const router = useRouter();
+  const auth = useAppAuth();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  if (auth.clerkEnabled) {
+    return (
+      <AuthLayout title="Welcome back" subtitle="Sign in to your workspace.">
+        <SignIn signUpUrl="/sign-up" forceRedirectUrl="/applications" />
+      </AuthLayout>
+    );
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -22,7 +34,7 @@ export default function Login() {
         ? await api.login(username.trim(), password)
         : await api.register(username.trim(), password);
       token.set(out.access_token);
-      router.replace("/tracker");
+      router.replace("/applications");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed. Is the API running?");
     } finally {
@@ -30,28 +42,30 @@ export default function Login() {
     }
   }
 
+  const login = mode === "login";
   return (
-    <div className="mx-auto mt-16 max-w-sm paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-8">
-      <h1 className="font-serif text-3xl font-bold tracking-tight text-postalnavy">thedaaakhouse</h1>
-      <p className="postal-copy mt-1 font-hand text-xl italic text-postmark">Sign the Register</p>
-      <p className="mt-1 text-sm text-postmark">
-        {mode === "login" ? "Log in to your workspace." : "Create your local account."}
-      </p>
-      <form onSubmit={submit} className="mt-6 space-y-3">
-        <input className={inputCls} placeholder="Username (min 3 chars)" value={username}
-          onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
-        <input className={inputCls} type="password" placeholder="Password (min 8 chars)" value={password}
-          onChange={(e) => setPassword(e.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} />
-        {error && <p className="rounded-lg bg-red-50 p-2.5 text-sm text-red-700">{error}</p>}
-        <button type="submit" disabled={busy || !username || !password}
-          className="w-full rounded-md bg-postred px-4 py-2 text-sm font-serif font-bold text-envelope disabled:opacity-40">
-          {busy ? "Working…" : mode === "login" ? "Log in" : "Create account"}
-        </button>
+    <AuthLayout title={login ? "Welcome back" : "Create your account"}
+      subtitle={login ? "Log in to your workspace." : "A local account on this server. Your data stays on your backend."}>
+      <form onSubmit={submit} className="space-y-4" noValidate>
+        <Field label="Username" hint={login ? undefined : "At least 3 characters."}>
+          <input className={inputCls} placeholder="Username (min 3 chars)" value={username} autoFocus
+            onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+        </Field>
+        <Field label="Password" hint={login ? undefined : "At least 8 characters."}>
+          <input className={inputCls} type="password" placeholder="Password (min 8 chars)" value={password}
+            onChange={(e) => setPassword(e.target.value)} autoComplete={login ? "current-password" : "new-password"} />
+        </Field>
+        {error && <p role="alert" className="shake rounded-md border border-bad/25 bg-bad/5 px-3.5 py-2.5 text-sm text-bad">{error}</p>}
+        <Button type="submit" variant="primary" size="lg" className="w-full" busy={busy} disabled={!username || !password}>
+          {busy ? "Working…" : login ? "Log in" : "Create account"}
+        </Button>
       </form>
-      <button onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(null); }}
-        className="mt-4 w-full text-center text-sm text-violet-700 hover:underline">
-        {mode === "login" ? "New here? Create an account" : "Have an account? Log in"}
-      </button>
-    </div>
+      <p className="mt-6 text-center text-sm text-ink-3">
+        {login ? "New here?" : "Have an account?"}{" "}
+        <button onClick={() => { setMode(login ? "register" : "login"); setError(null); }} className="font-medium text-brand hover:underline">
+          {login ? "Create an account" : "Log in"}
+        </button>
+      </p>
+    </AuthLayout>
   );
 }

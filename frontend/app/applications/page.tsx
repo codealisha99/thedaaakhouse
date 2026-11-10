@@ -1,97 +1,196 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { ErrorBox } from "@/components/ui";
-import { Btn, Card, Chip, PageHeader, Skeleton, StatCard } from "@/components/retro";
-import { pinFor, stageFor, stageOf } from "@/components/post/journey";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { EmptyState, ErrorState, LinkButton, LoadingBlock, PageHeader, Panel, PanelHeader, TrackingId, cx } from "@/components/ds";
+import { StageBadge, StageDistribution, StageRoute } from "@/components/route";
+import { STAGES, STATUS_LABEL, TERMINAL, daysSince, relativeDays, stageFor, type StageKey } from "@/lib/journey";
 import { api } from "@/lib/api";
 import type { Application } from "@/types";
 
-function AppCard({ app }: { app: Application }) {
-  const stage = stageOf(stageFor(app.status, app.updated_at));
-  const skills = app.jd_analysis?.skills.slice(0, 3) ?? [];
+const QUIET_AFTER_DAYS = 14;
+
+type Attention = { app: Application; kind: "interview" | "next" | "quiet" | "resume"; text: string };
+
+/** Derive what needs attention from real application fields only. */
+function attentionItems(apps: Application[]): Attention[] {
+  const out: Attention[] = [];
+  for (const a of apps) {
+    const stage = stageFor(a.status, a.updated_at);
+    if (TERMINAL.includes(stage)) continue;
+    if (a.interview_date) out.push({ app: a, kind: "interview", text: `Interview ${a.interview_date}` });
+    else if (a.next_step) out.push({ app: a, kind: "next", text: a.next_step });
+    else if (a.status !== "saved" && !a.resume_version_id) out.push({ app: a, kind: "resume", text: "No resume version attached" });
+    else {
+      const d = daysSince(a.updated_at);
+      if (d != null && d >= QUIET_AFTER_DAYS) out.push({ app: a, kind: "quiet", text: `No movement for ${d} days` });
+    }
+  }
+  const rank = { interview: 0, next: 1, resume: 2, quiet: 3 };
+  return out.sort((x, y) => rank[x.kind] - rank[y.kind]);
+}
+
+type Event = { app: Application; from?: string; to: string; at: string };
+function activity(apps: Application[], n = 8): Event[] {
+  return apps
+    .flatMap((app) => app.status_history.map((h) => ({ app, ...h })))
+    .filter((e) => !Number.isNaN(new Date(e.at).getTime()))
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+    .slice(0, n);
+}
+
+const KIND_LABEL: Record<Attention["kind"], string> = { interview: "Interview", next: "Next step", resume: "Resume", quiet: "Going quiet" };
+const KIND_DOT: Record<Attention["kind"], string> = { interview: "bg-accent", next: "bg-brand", resume: "bg-warn", quiet: "bg-ink-3" };
+
+function AttentionList({ items }: { items: Attention[] }) {
+  if (items.length === 0) {
+    return <p className="rounded-md bg-sunken/60 px-4 py-6 text-center text-sm text-ink-2">Nothing waiting on you. Every live application has a resume and recent movement.</p>;
+  }
   return (
-    <Card lift className="flex flex-col p-4">
-      <h4 className="font-pixel text-xl font-bold uppercase leading-tight text-green">{app.role}</h4>
-      <p className="mt-1 font-mono text-sm">{app.company || "Untitled company"}</p>
-      <ul className="mt-3 space-y-1.5 font-mono text-[13px] text-muted">
-        <li>[team] {stage.title}</li>
-        <li>[loc] {app.location || "—"}</li>
-        <li>[date] {app.date_applied || app.date_saved || "—"}</li>
-      </ul>
-      {skills.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {skills.map((s) => <Chip key={s}>{s}</Chip>)}
-        </div>
-      )}
-      <div className="mt-3 border-t-2 border-green pt-2 font-mono text-xs font-bold uppercase">
-        <Link href={`/applications/${app.id}`} className="underline hover:no-underline">
-          Open ↗
-        </Link>
-        <span className="ml-3 text-muted">DH-{pinFor(app.id)}</span>
-      </div>
-    </Card>
+    <ul className="stagger -mx-2">
+      {items.slice(0, 7).map(({ app, kind, text }) => (
+        <li key={`${app.id}-${kind}`}>
+          <Link href={`/applications/${app.id}`} className="group flex items-start gap-3 rounded-md px-2 py-3 transition-colors hover:bg-sunken/70">
+            <span className={cx("mt-[7px] size-2 shrink-0 rounded-full", KIND_DOT[kind])} aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
+                <span className="font-medium text-ink">{app.company || "Untitled company"}</span>
+                <span className="truncate text-ink-3">{app.role}</span>
+              </p>
+              <p className="mt-0.5 truncate text-[13px] text-ink-2"><span className="text-ink-3">{KIND_LABEL[kind]} · </span>{text}</p>
+            </div>
+            <span className="mt-0.5 text-ink-3 transition-transform group-hover:translate-x-0.5" aria-hidden="true">→</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 
-export default function Applications() {
+function ActivityStream({ events }: { events: Event[] }) {
+  if (events.length === 0) return <p className="text-sm text-ink-3">Status changes will appear here.</p>;
+  return (
+    <ol className="relative space-y-4 before:absolute before:top-2 before:bottom-2 before:left-[5px] before:w-px before:bg-line">
+      {events.map((e, i) => (
+        <li key={`${e.app.id}-${e.at}-${i}`} className="relative pl-6">
+          <span className="absolute top-1.5 left-0 size-[11px] rounded-full border-2 border-surface bg-ink-3" aria-hidden="true" />
+          <p className="text-[13px] text-ink">
+            <Link href={`/applications/${e.app.id}`} className="font-medium hover:underline">{e.app.company || e.app.role}</Link>
+            <span className="text-ink-2"> {e.from ? `moved ${STATUS_LABEL[e.from] ?? e.from} → ` : "created as "}{STATUS_LABEL[e.to] ?? e.to}</span>
+          </p>
+          <p className="mt-0.5 font-mono text-[11px] text-ink-3">{relativeDays(e.at)}</p>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function RecentRow({ app }: { app: Application }) {
+  return (
+    <li>
+      <Link href={`/applications/${app.id}`} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2 px-5 py-3.5 transition-colors hover:bg-sunken/50 sm:grid-cols-[minmax(0,1fr)_120px_110px_64px]">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-ink">{app.role}</p>
+          <p className="truncate text-[13px] text-ink-3">{app.company || "Untitled company"}{app.location ? ` · ${app.location}` : ""}</p>
+        </div>
+        <div className="hidden sm:block"><StageRoute compact status={app.status} updatedAt={app.updated_at} history={app.status_history} /></div>
+        <div className="justify-self-end sm:justify-self-start"><StageBadge status={app.status} updatedAt={app.updated_at} /></div>
+        <p className="hidden text-right font-mono text-[12px] tabular text-ink-3 sm:block">{app.ats_score != null ? app.ats_score.toFixed(0) : "—"}</p>
+      </Link>
+    </li>
+  );
+}
+
+export default function Today() {
   const [apps, setApps] = useState<Application[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    api.listApps({}).then((a) => { setApps(a); setState("ready"); })
-      .catch((e) => { setError(e instanceof Error ? e.message : "load failed"); setState("error"); });
+  const load = useCallback(async () => {
+    setState("loading");
+    try { setApps(await api.listApps({ sort: "updated" })); setState("ready"); }
+    catch (e) { setError(e instanceof Error ? e.message : "Couldn’t load applications."); setState("error"); }
   }, []);
+  useEffect(() => { load(); }, [load]);
 
-  const count = (stages: string[]) =>
-    apps.filter((a) => stages.includes(stageFor(a.status, a.updated_at))).length;
-  const followups = apps.filter((a) => a.next_step || a.interview_date).slice(0, 5);
+  const counts = useMemo(() => {
+    const c = Object.fromEntries(STAGES.map((s) => [s.key, 0])) as Record<StageKey, number>;
+    for (const a of apps) c[stageFor(a.status, a.updated_at)] += 1;
+    return c;
+  }, [apps]);
+  const attention = useMemo(() => attentionItems(apps), [apps]);
+  const events = useMemo(() => activity(apps), [apps]);
+  const live = apps.length - counts.delivered - counts.return - counts.dead;
+  const lead = apps[0];
+
+  const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
   return (
-    <div className="space-y-6">
+    <div>
       <PageHeader
-        title="Overview"
-        subtitle="Every application, one board."
-        action={<Btn href="/applications/new">+ New application</Btn>}
+        eyebrow={today}
+        title="Today"
+        description={state === "ready" && apps.length > 0
+          ? <><span className="font-mono tabular text-ink">{live}</span> live application{live === 1 ? "" : "s"}, <span className="font-mono tabular text-ink">{attention.length}</span> waiting on you.</>
+          : "What needs attention across your job search."}
+        actions={<><LinkButton href="/tracker" variant="secondary">Open tracker</LinkButton><LinkButton href="/applications/new" variant="accent">Add application</LinkButton></>}
       />
 
-      {state === "loading" && <Skeleton />}
-      {state === "error" && <ErrorBox message={error} />}
+      {state === "loading" && <LoadingBlock rows={4} label="Loading applications" />}
+      {state === "error" && <ErrorState message={error} onRetry={load} />}
 
-      {state === "ready" && (
-        <>
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <StatCard n={count(["posted"])} label="Applied" href="/tracker" />
-            <StatCard n={count(["transit"])} label="In Transit" href="/tracker" />
-            <StatCard n={count(["out"])} label="Interviews" href="/tracker" />
-            <StatCard n={count(["delivered"])} label="Offers" href="/tracker" />
-          </div>
+      {state === "ready" && apps.length === 0 && (
+        <EmptyState
+          title="Your post house is empty"
+          body="Add a job by pasting its description or URL. It’s analysed for skills, keywords and experience, then tracked from draft to offer."
+          action={<><LinkButton href="/applications/new" variant="accent">Add your first application</LinkButton><LinkButton href="/discovery" variant="secondary">Discover jobs</LinkButton></>}
+        />
+      )}
 
-          <div className="grid gap-6 lg:grid-cols-3">
-            <div className="space-y-4 lg:col-span-2">
-              <h3 className="font-pixel text-xl font-bold uppercase text-green">Recent applications</h3>
-              {apps.length === 0 && <p className="font-mono text-sm text-muted">No applications yet.</p>}
-              <div className="grid gap-4 sm:grid-cols-2">
-                {apps.slice(0, 6).map((a) => <AppCard key={a.id} app={a} />)}
+      {state === "ready" && apps.length > 0 && (
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="min-w-0 space-y-6">
+            <Panel>
+              <PanelHeader title="Needs attention" meta="Interviews, next steps, missing resumes, and applications going quiet" />
+              <AttentionList items={attention} />
+            </Panel>
+
+            <Panel>
+              <PanelHeader title="Pipeline" meta={`${apps.length} applications across the route`} action={<Link href="/tracker" className="text-[13px] text-ink-3 hover:text-ink">Board →</Link>} />
+              <StageDistribution counts={counts} />
+            </Panel>
+
+            <Panel padded={false} className="overflow-hidden">
+              <div className="flex items-center justify-between px-5 pt-5 pb-3">
+                <h3 className="text-[15px] font-semibold text-ink">Recently updated</h3>
+                <span className="hidden font-mono text-[11px] uppercase tracking-[0.08em] text-ink-3 sm:block">ATS</span>
               </div>
-            </div>
-            <div>
-              <h3 className="font-pixel text-xl font-bold uppercase text-green">Follow-ups due</h3>
-              <Card className="mt-4 space-y-2 bg-sage p-4">
-                {followups.length === 0 && (
-                  <p className="font-mono text-sm text-muted">Nothing due. Board is clear.</p>
-                )}
-                {followups.map((a) => (
-                  <Link key={a.id} href={`/applications/${a.id}`} className="block border-2 border-green bg-surface p-2 font-mono text-[13px] hover:bg-sage">
-                    <strong>{a.company}</strong> — {a.next_step || `interview ${a.interview_date ?? ""}`}
-                  </Link>
-                ))}
-              </Card>
-            </div>
+              <ul className="divide-y divide-line border-t border-line">
+                {apps.slice(0, 6).map((a) => <RecentRow key={a.id} app={a} />)}
+              </ul>
+            </Panel>
           </div>
-        </>
+
+          <aside className="space-y-6">
+            {lead && (
+              <Panel>
+                <div className="flex items-center justify-between">
+                  <TrackingId id={lead.id} />
+                  <span className="font-mono text-[11px] text-ink-3">{relativeDays(lead.updated_at)}</span>
+                </div>
+                <p className="mt-3 font-display text-2xl leading-tight text-ink">{lead.role}</p>
+                <p className="text-sm text-ink-2">{lead.company || "Untitled company"}</p>
+                <div className="tear my-5" aria-hidden="true" />
+                <StageRoute status={lead.status} updatedAt={lead.updated_at} history={lead.status_history} />
+                <Link href={`/applications/${lead.id}`} className="mt-5 inline-block text-[13px] font-medium text-brand hover:underline">Open latest application →</Link>
+              </Panel>
+            )}
+            <Panel>
+              <PanelHeader title="Activity" />
+              <ActivityStream events={events} />
+            </Panel>
+          </aside>
+        </div>
       )}
     </div>
   );

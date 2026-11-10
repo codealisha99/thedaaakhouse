@@ -20,17 +20,17 @@ test("login succeeds, persists token, survives reload", async ({ page }) => {
   await page.getByPlaceholder("Password (min 8 chars)").fill(PASS);
   await page.getByRole("button", { name: "Log in" }).click();
   // Must redirect off /login (catches infinite-loading regressions).
-  await page.waitForURL("**/tracker", { timeout: 20000 });
+  await page.waitForURL("**/applications", { timeout: 20000 });
   const token = await page.evaluate(() => localStorage.getItem("thedaaakhouse_token"));
   expect(token).toBeTruthy();
   await page.reload();
-  await page.waitForURL("**/tracker", { timeout: 20000 });
+  await page.waitForURL("**/applications", { timeout: 20000 });
   // Regression: loading must resolve to content or empty state, never hang.
   await expect(page.locator("body")).not.toContainText("Loading…", { timeout: 20000 });
   await expect(
-    page.getByRole("heading", { name: "Pigeonholes" })
+    page.getByRole("heading", { name: "Today" })
   ).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/No letters yet|application/i).first()).toBeVisible();
+  await expect(page.getByText(/post house is empty|application/i).first()).toBeVisible();
 });
 
 test("wrong password shows error and re-enables the form (never stuck)", async ({ page }) => {

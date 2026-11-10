@@ -2,6 +2,24 @@ import type { Application, ApplicationDetail, ArenaSession, ArenaSummary, Resume
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
 const TOKEN_KEY = "thedaaakhouse_token";
+export interface OutreachDraft {
+  id: string; recipient_email: string; subject: string; body: string; payload_sha256: string;
+  resume_version_id: string | null; attachment_preview: string | null; status: string;
+  factuality_findings: { code: string; detail: string }[];
+}
+export interface CampaignTask {
+  id: string; status: string; company?: string; recipient_email?: string;
+  result?: { draft_id?: string }; error_detail?: string; error_code?: string;
+}
+let authTokenProvider: (() => Promise<string | null>) | null = null;
+
+export function setAuthTokenProvider(provider: (() => Promise<string | null>) | null) {
+  authTokenProvider = provider;
+}
+
+export async function getAuthToken() {
+  return authTokenProvider ? authTokenProvider() : token.get();
+}
 
 export const token = {
   get: () => (typeof window === "undefined" ? null : localStorage.getItem(TOKEN_KEY)),
@@ -25,7 +43,7 @@ async function req<T>(path: string, init?: RequestInit, auth = true): Promise<T>
   const headers: Record<string, string> = {};
   if (init?.body && !(init.body instanceof FormData)) headers["Content-Type"] = "application/json";
   if (auth) {
-    const t = token.get();
+    const t = await getAuthToken();
     if (t) headers["Authorization"] = `Bearer ${t}`;
   }
   const ctrl = new AbortController();
@@ -58,8 +76,11 @@ async function req<T>(path: string, init?: RequestInit, auth = true): Promise<T>
     if (!window.location.pathname.startsWith("/login")) window.location.href = "/login";
   }
   if (!r.ok) {
-    const detail = await r.json().catch(() => ({})).then((j) => (j as { detail?: string }).detail ?? r.statusText);
-    throw new ApiError(r.status, typeof detail === "string" ? detail : r.statusText);
+    const detail = await r.json().catch(() => ({})).then((j) => j.detail ?? r.statusText);
+    const message = typeof detail === "string" ? detail : Array.isArray(detail)
+      ? detail.map((item: { msg?: string }) => item.msg ?? "Invalid input").join("; ")
+      : detail.detail ?? (detail.rows ? `${detail.message} ${detail.rows.map((row: { row: number; error: string }) => `Row ${row.row}: ${row.error}`).join("; ")}` : detail.message) ?? r.statusText;
+    throw new ApiError(r.status, message);
   }
   if (r.status === 204) return undefined as T;
   try {
@@ -77,6 +98,18 @@ const q = (params: Record<string, string | undefined>) => {
 };
 
 export const api = {
+  discoverySources: () => req<{ id: string; name: string; adapter: string; consecutive_failures: number }[]>("/api/discovery/sources"),
+  discoveryListings: () => req<{ id: string; title: string; company_name: string; location: string | null; status: string; needs_review: boolean }[]>("/api/discovery/listings?status=active"),
+  discoveryCreate: (name: string, adapter: string, url: string) => req<{ id: string }>("/api/discovery/sources", { method: "POST", body: JSON.stringify({ name, adapter, config: { url, company_name: name } }) }),
+  discoveryScan: (source_id: string) => req<{ task_id: string }>("/api/tasks", { method: "POST", body: JSON.stringify({ kind: "discovery.scan", payload: { source_id } }) }),
+  discoverySave: (id: string) => req<{ application_id: string }>(`/api/discovery/listings/${id}/save`, { method: "POST" }),
+  campaignPrepare: (csv_text: string, resume_id: string, signature: string) => req<{ tasks: { task_id: string; replayed: boolean }[] }>("/api/campaigns/prepare", { method: "POST", body: JSON.stringify({ csv_text, resume_id, signature }) }),
+  campaignTasks: () => req<CampaignTask[]>("/api/campaigns/tasks"),
+  outreachDrafts: () => req<OutreachDraft[]>("/api/outreach/drafts"),
+  outreachEdit: (id: string, subject: string, body: string) => req<OutreachDraft>(`/api/outreach/drafts/${id}`, { method: "PATCH", body: JSON.stringify({ subject, body }) }),
+  outreachSend: (id: string, payload_sha256: string) => req<{ task_id: string }>(`/api/outreach/drafts/${id}/review-send`, { method: "POST", body: JSON.stringify({ payload_sha256 }) }),
+  outreachSends: () => req<{ id: string; draft_id: string; status: string }[]>("/api/outreach/sends"),
+  taskStatus: (id: string) => req<CampaignTask>(`/api/tasks/${id}`),
   register: (username: string, password: string) =>
     req<{ access_token: string; username: string }>("/api/auth/register", {
       method: "POST", body: JSON.stringify({ username, password }), headers: {},
@@ -188,4 +221,14 @@ export const api = {
   gmailConnect: () => req<{ authorization_url: string }>("/api/integrations/gmail/connect", { method: "POST" }),
   gmailDisconnect: () => req<{ disconnected: boolean }>("/api/integrations/gmail", { method: "DELETE" }),
   gmailSync: () => req<{ events_added: number }>("/api/integrations/gmail/sync", { method: "POST" }),
+  createStartupProspect: (payload: { url: string; name?: string; note?: string }) =>
+    req<{ id: string; kind: string; company: string | null; domain: string | null }>("/api/opportunities/startups", { method: "POST", body: JSON.stringify(payload) }),
+  listOpportunities: () => req<{ items: { id: string; kind: string; title: string | null; company: string | null; domain: string | null }[] }>("/api/opportunities?limit=100"),
+  discoverContacts: (opportunityId: string, idempotencyKey: string) =>
+    req<{ task_id: string; status: string; poll_url: string; research_run_id: string; replayed: boolean }>(`/api/opportunities/${opportunityId}/contacts/discover`, { method: "POST", headers: { "Idempotency-Key": idempotencyKey } }),
+  opportunityContacts: (opportunityId: string) =>
+    req<{ contacts: { id: string; opportunity_id: string | null; name: string | null; role: string | null; email: string | null; source_url: string | null; address_source: string; verification_state: string; review_required: boolean }[]; research_runs: { id: string; task_id: string | null; status: string; result: Record<string, unknown> }[] }>(`/api/opportunities/${opportunityId}/contacts`),
+  createOutreachDraft: (payload: { opportunity_id: string; recipient_email: string; recipient_name?: string; recipient_role?: string; recipient_identity: "known" | "unknown"; contact_source_url?: string; contact_source_kind: "published" | "provider_reported" | "inferred_pattern" | "user_supplied" }) =>
+    req<{ id: string; subject: string; body: string; payload_sha256: string }>("/api/outreach/drafts", { method: "POST", body: JSON.stringify(payload) }),
+  operationsSummary: () => req<{ tasks_by_status: Record<string, number>; discovery: { enabled_sources: number; configured_sources: number; runs_last_24h: number; listing_budget_per_run: number; failures_last_24h: number }; outreach: { send_attempts_last_24h: number; accepted_last_24h: number; unknown_last_24h: number } }>("/api/operations/summary"),
 };

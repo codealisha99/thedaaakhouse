@@ -3,9 +3,14 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { ErrorBox, Field, Spinner, inputCls } from "@/components/ui";
+import {
+  Button, EmptyState, ErrorState, Field, Label, LoadingBlock, Notice, PageHeader, Panel, PanelHeader,
+  Tag, cx, linkCls, selectCls,
+} from "@/components/ds";
 import { api } from "@/lib/api";
-import type { Application, Resume } from "@/types";
+import type { Application, ChangeOp, Resume, ResumeVersion } from "@/types";
+
+const MAX_CHANGES_SHOWN = 10;
 
 function TailorInner() {
   const params = useSearchParams();
@@ -14,7 +19,7 @@ function TailorInner() {
   const [appId, setAppId] = useState(params.get("app") ?? "");
   const [resumeId, setResumeId] = useState("");
   const [result, setResult] = useState<{ id: string } | null>(null);
-  const [detail, setDetail] = useState<import("@/types").ResumeVersion | null>(null);
+  const [detail, setDetail] = useState<ResumeVersion | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -44,60 +49,127 @@ function TailorInner() {
     }
   }
 
-  if (!loaded) return <Spinner />;
-  if (error && apps.length === 0) return <ErrorBox message={error} />;
+  if (error && apps.length === 0) return <ErrorState message={error} />;
+  if (!loaded) return <LoadingBlock rows={3} label="Loading applications" />;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
-      <div>
-        <h2 className="font-serif text-3xl font-bold tracking-tight text-postalnavy">Tailor Resume</h2>
-        <p className="postal-copy font-hand text-xl italic text-postmark">The Tailoring Table</p>
-        <p className="text-sm text-postmark">Extractive only — bullets are reordered by JD relevance, never rewritten. Missing terms are reported, not filled.</p>
+    <div className="space-y-8">
+      <PageHeader
+        eyebrow="Resume · Tailor"
+        title="Tailor resume"
+        description="Extractive only. Bullets are reordered by job-description relevance, never rewritten. Missing terms are reported, not filled in."
+      />
+      <div className="grid items-start gap-6 lg:grid-cols-[340px_1fr]">
+        <TailorForm
+          apps={apps} resumes={resumes} appId={appId} resumeId={resumeId}
+          busy={busy} error={error}
+          onAppChange={setAppId} onResumeChange={setResumeId} onSubmit={submit}
+        />
+        {result && detail ? <TailorResult version={detail} appId={appId} /> : (
+          <EmptyState title="No version yet" body="The result lists each change, the reason for it and the resume evidence behind it." />
+        )}
       </div>
-      <form onSubmit={submit} className="space-y-3 paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Application">
-            <select className={inputCls} value={appId} onChange={(e) => setAppId(e.target.value)}>
-              {apps.map((a) => <option key={a.id} value={a.id}>{a.company} · {a.role}</option>)}
-            </select>
-          </Field>
-          <Field label="Master resume">
-            <select className={inputCls} value={resumeId} onChange={(e) => setResumeId(e.target.value)}>
-              {resumes.map((r) => <option key={r.id} value={r.id}>{r.filename}</option>)}
-            </select>
-          </Field>
-        </div>
-        {error && <p className="rounded-lg bg-red-50 p-2.5 text-sm text-red-700">{error}</p>}
-        <button type="submit" disabled={busy || !appId || !resumeId}
-          className="rounded-md bg-postred px-4 py-2 text-sm font-serif font-bold text-envelope disabled:opacity-40">
-          {busy ? "Tailoring…" : "Create tailored version"}
-        </button>
-      </form>
-      {result && detail && (
-        <div className="space-y-3 paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5 text-sm">
-          <p className="font-semibold text-emerald-700">Version created and attached to the application. <Link href={`/applications/${appId}`} className="underline">Open workspace →</Link></p>
-          <h3 className="font-semibold">Optimization changes ({(detail.changes ?? []).length})</h3>
-          <ul className="space-y-2">
-            {(detail.changes ?? []).slice(0, 10).map((c, i) => (
-              <li key={i} className="rounded-lg bg-slate-50 p-2.5">
-                <p><code className="text-xs">{c.operation}</code> — {c.reason}</p>
-                {c.target_requirement && <p className="text-xs text-postmark">JD requirement → {c.target_requirement}</p>}
-                {c.source_evidence.length > 0 && <p className="text-xs text-postmark">Supported by: {c.source_evidence[0]}</p>}
-              </li>
-            ))}
-          </ul>
-          {(detail.missing_keywords ?? []).length > 0 && (
-            <p className="text-amber-800">Missing from your profile (not added): {(detail.missing_keywords ?? []).slice(0, 8).join(", ")}</p>
-          )}
-        </div>
+    </div>
+  );
+}
+
+function TailorForm(p: {
+  apps: Application[]; resumes: Resume[]; appId: string; resumeId: string; busy: boolean; error: string | null;
+  onAppChange: (v: string) => void; onResumeChange: (v: string) => void; onSubmit: (e: React.FormEvent) => void;
+}) {
+  return (
+    <form onSubmit={p.onSubmit} aria-label="Tailor settings" className="lg:sticky lg:top-6">
+      <Panel className="space-y-4">
+        <PanelHeader title="Source and target" meta="Creates a version attached to the application." />
+        <Field label="Application">
+          <select className={selectCls} value={p.appId} onChange={(e) => p.onAppChange(e.target.value)}>
+            {p.apps.map((a) => <option key={a.id} value={a.id}>{a.company} · {a.role}</option>)}
+          </select>
+        </Field>
+        <Field label="Master resume">
+          <select className={selectCls} value={p.resumeId} onChange={(e) => p.onResumeChange(e.target.value)}>
+            {p.resumes.map((r) => <option key={r.id} value={r.id}>{r.filename}</option>)}
+          </select>
+        </Field>
+        {p.error && <Notice tone="bad">{p.error}</Notice>}
+        <Button type="submit" variant="accent" className="w-full" busy={p.busy} disabled={!p.appId || !p.resumeId}>
+          {p.busy ? "Tailoring…" : "Create tailored version"}
+        </Button>
+      </Panel>
+    </form>
+  );
+}
+
+function TailorResult({ version, appId }: { version: ResumeVersion; appId: string }) {
+  const changes = version.changes ?? [];
+  const missing = version.missing_keywords ?? [];
+  const shown = changes.slice(0, MAX_CHANGES_SHOWN);
+  return (
+    <div className="space-y-6">
+      <Notice tone="ok">
+        Version created and attached to the application.{" "}
+        <Link href={`/applications/${appId}`} className={linkCls}>Open workspace →</Link>
+      </Notice>
+
+      <Panel>
+        <PanelHeader
+          title="Change operations"
+          meta={`${changes.length} change${changes.length === 1 ? "" : "s"}${changes.length > MAX_CHANGES_SHOWN ? `, showing the first ${MAX_CHANGES_SHOWN}` : ""}`}
+        />
+        {shown.length === 0 ? (
+          <p className="text-sm text-ink-3">No reordering was needed.</p>
+        ) : (
+          <ol className="stagger space-y-3">
+            {shown.map((c, i) => <ChangeRow key={i} index={i + 1} change={c} />)}
+          </ol>
+        )}
+      </Panel>
+
+      {missing.length > 0 && (
+        <Panel>
+          <PanelHeader title="Missing from your profile" meta="Reported, not added. Your profile has no evidence for these terms." />
+          <div className="flex flex-wrap gap-1.5">
+            {missing.map((k) => <Tag key={k} tone="bad">{k}</Tag>)}
+          </div>
+        </Panel>
       )}
     </div>
   );
 }
 
+function ChangeRow({ index, change }: { index: number; change: ChangeOp }) {
+  return (
+    <li className="rounded-md border border-line p-3.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[11px] tabular text-ink-3">{String(index).padStart(2, "0")}</span>
+        <Tag>{change.operation}</Tag>
+      </div>
+      <p className="mt-2 text-sm leading-relaxed text-ink">{change.reason}</p>
+      {change.target_requirement && (
+        <p className="mt-2.5 text-[13px] text-ink-2">
+          <Label className="mr-2">JD requirement</Label>
+          {change.target_requirement}
+        </p>
+      )}
+      {change.source_evidence.length > 0 && (
+        <div className="mt-3">
+          <Label>Source evidence</Label>
+          <ul className="mt-1.5 space-y-1.5">
+            {change.source_evidence.map((ev, j) => (
+              <li key={j} className={cx("break-words border-l-2 border-ok bg-ok/8 py-1 pr-2 pl-3 font-mono text-[12px] leading-relaxed text-ink-2")}>
+                {ev}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </li>
+  );
+}
+
 export default function Tailor() {
   return (
-    <Suspense fallback={<Spinner />}>
+    <Suspense fallback={<LoadingBlock rows={3} label="Loading" />}>
       <TailorInner />
     </Suspense>
   );

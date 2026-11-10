@@ -2,10 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Field, inputCls } from "@/components/ui";
-import { Letterhead, TypedMemo, WaxSealButton } from "@/components/post/postal";
+import {
+  Button, EmptyState, Field, LinkButton, Meter, Notice, PageHeader, Panel, PanelHeader, cx, linkCls, selectCls,
+} from "@/components/ds";
 import { api } from "@/lib/api";
 import type { Application, StudyPlanSummary } from "@/types";
+
+const TOUCH_LINK = cx(linkCls, "inline-flex min-h-9 items-center");
 
 export default function LearnHub() {
   const [apps, setApps] = useState<Application[]>([]);
@@ -40,41 +43,57 @@ export default function LearnHub() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
-      <Letterhead title="Learning Hub" subtitle="Study plans built from your JDs, tracked topic by topic" />
-      <form onSubmit={create} className="flex gap-2 rounded-xl border bg-white p-4">
-        <div className="flex-1">
-          <Field label="Application">
-            <select className={inputCls} value={appId} onChange={(e) => setAppId(e.target.value)}>
-              {apps.map((a) => <option key={a.id} value={a.id}>{a.company} · {a.role}</option>)}
-            </select>
-          </Field>
-        </div>
-        <button type="submit" disabled={busy || !appId}
-          className="self-end rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
-          {busy ? "Building…" : "New plan"}
-        </button>
-      </form>
-      {error && <p className="rounded-lg bg-red-50 p-2.5 text-sm text-red-700">{error}</p>}
-      {plans.length === 0
-        ? <p className="rounded-xl border border-dashed bg-white p-6 text-sm text-slate-500">No study plans yet. Missing JD terms become lessons; known skills become revision.</p>
-        : (
-          <ul className="space-y-2">
-            {plans.map((p) => (
-              <li key={p.id} className="rounded-xl border bg-white p-4 text-sm">
-                <Link href={`/learn/${p.id}`} className="font-semibold text-violet-700 hover:underline">{p.title}</Link>
-                <p className="text-xs text-slate-500">{p.mastered}/{p.topics} topics mastered</p>
-                <div className="mt-1 h-1.5 rounded bg-slate-100">
-                  <div className="h-1.5 rounded bg-emerald-500" style={{ width: `${p.topics ? (100 * p.mastered) / p.topics : 0}%` }} />
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      <TypedMemo title="How it works">
-        <p>Each plan ranks missing JD terms first, links lessons to your real resume evidence, and checks answers against expected points — retry loops on what you miss.</p>
-      </TypedMemo>
-      <WaxSealButton href="/tracker">Back to tracker</WaxSealButton>
+    <div className="mx-auto max-w-5xl">
+      <PageHeader
+        eyebrow="Learning"
+        title="Learning hub"
+        description="Study plans built from your job descriptions, tracked topic by topic."
+        actions={<LinkButton href="/tracker" variant="secondary">Back to tracker</LinkButton>}
+      />
+      {error && <Notice tone="bad" className="mb-5">{error}</Notice>}
+      <div className="grid items-start gap-5 lg:grid-cols-[320px_1fr]">
+        <aside className="space-y-5">
+          <form onSubmit={create}>
+            <Panel className="space-y-4">
+              <PanelHeader title="New study plan" />
+              <Field label="Application">
+                <select className={selectCls} value={appId} onChange={(e) => setAppId(e.target.value)}>
+                  {apps.map((a) => <option key={a.id} value={a.id}>{a.company} · {a.role}</option>)}
+                </select>
+              </Field>
+              <Button type="submit" variant="accent" busy={busy} disabled={!appId} className="w-full">
+                {busy ? "Building…" : "New plan"}
+              </Button>
+            </Panel>
+          </form>
+          <Panel>
+            <PanelHeader title="How it works" />
+            <p className="text-[14px] leading-relaxed text-ink-2">
+              Each plan ranks missing JD terms first, links lessons to your real resume evidence, and checks answers against expected points — retry loops on what you miss.
+            </p>
+          </Panel>
+        </aside>
+        <section aria-label="Study plans">
+          {plans.length === 0 ? (
+            <EmptyState title="No study plans yet" body="Missing JD terms become lessons; known skills become revision." />
+          ) : (
+            <Panel padded={false}>
+              <ul className="stagger divide-y divide-line">
+                {plans.map((p) => (
+                  <li key={p.id} className="px-5 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <Link href={`/learn/${p.id}`} className={cx(TOUCH_LINK, "font-medium text-ink hover:text-brand")}>{p.title}</Link>
+                      <span className="shrink-0 font-mono text-[13px] tabular text-ink-2">{p.mastered}/{p.topics}</span>
+                    </div>
+                    <Meter value={p.mastered} max={Math.max(p.topics, 1)} tone="ok" className="mt-3" label={`${p.title} mastery`} />
+                    <p className="mt-2 text-[13px] text-ink-3">{p.mastered} of {p.topics} topics mastered</p>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

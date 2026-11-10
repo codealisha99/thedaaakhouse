@@ -2,11 +2,18 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { EmptyState, ErrorBox, ScoreBadge, Spinner } from "@/components/ui";
+import {
+  Badge, Button, EmptyState, ErrorState, Label, LoadingBlock, PageHeader, Panel, PanelHeader,
+  Spinner, Tag, buttonCls, cx, linkCls, scoreTone,
+} from "@/components/ds";
+import { useToast } from "@/components/toast";
 import { api } from "@/lib/api";
 import type { Resume, ResumeVersion } from "@/types";
 
+const MAX_MISSING_SHOWN = 5;
+
 export default function MyResumes() {
+  const { toast } = useToast();
   const [masters, setMasters] = useState<Resume[]>([]);
   const [versions, setVersions] = useState<ResumeVersion[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -36,7 +43,7 @@ export default function MyResumes() {
       await api.uploadResume(f);
       await load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Upload failed.");
+      toast(err instanceof Error ? err.message : "Upload failed.", "bad");
     } finally {
       setBusy(false);
       e.target.value = "";
@@ -44,88 +51,131 @@ export default function MyResumes() {
   }
 
   async function view(id: string, kind: "master" | "version") {
-    if (kind === "master") {
-      const doc = await api.getResume(id);
+    try {
+      if (kind === "master") {
+        const doc = await api.getResume(id);
+        setOpenText(doc.raw_text ?? "");
+      } else {
+        const doc = await api.getVersion(id);
+        setOpenText(doc.content ?? "");
+      }
       setOpenId(id);
-      setOpenText(doc.raw_text ?? "");
-    } else {
-      const doc = await api.getVersion(id);
-      setOpenId(id);
-      setOpenText(doc.content ?? "");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not open that resume.", "bad");
     }
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="font-serif text-3xl font-bold tracking-tight text-postalnavy">My Resumes</h2>
-          <p className="postal-copy font-hand text-xl italic text-postmark">The Filing Cabinet</p>
-          <p className="text-sm text-postmark">Master resumes are never overwritten — tailoring creates versions.</p>
-        </div>
-        <label className="cursor-pointer rounded-md bg-postred px-4 py-2 text-sm font-serif font-bold text-envelope">
-          {busy ? "Uploading…" : "+ Upload resume"}
-          <input type="file" className="hidden" onChange={upload} accept=".txt,.pdf,.docx,.tex" />
-        </label>
-      </div>
+    <div className="space-y-8">
+      <PageHeader
+        eyebrow="Resumes"
+        title="My resumes"
+        description="Master resumes are never overwritten. Tailoring creates a new version each time."
+        actions={
+          <label className={cx(
+            buttonCls("accent", "md"), "cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent",
+            busy && "pointer-events-none opacity-60",
+          )}>
+            {busy && <Spinner />}
+            {busy ? "Uploading…" : "Upload resume"}
+            <input type="file" className="sr-only" onChange={upload} disabled={busy} accept=".txt,.pdf,.docx,.tex" />
+          </label>
+        }
+      />
 
-      {state === "loading" && <Spinner />}
-      {state === "error" && <ErrorBox message={error} onRetry={load} />}
+      {state === "loading" && <LoadingBlock rows={3} label="Loading resumes" />}
+      {state === "error" && <ErrorState message={error} onRetry={load} />}
 
       {state === "ready" && (
-        <>
-          <section>
-            <h3 className="mb-2 text-sm font-semibold">Master resumes ({masters.length})</h3>
-            {masters.length === 0 ? <EmptyState>No master resume yet — upload your current resume to start.</EmptyState> : (
-              <ul className="grid gap-2 sm:grid-cols-2">
-                {masters.map((m) => (
-                  <li key={m.id} className="flex items-center justify-between paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-3 text-sm">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{m.filename}</p>
-                      <p className="text-xs text-postmark">{m.parse_status} · {(m.raw_text ?? "").split("\n").length} lines</p>
-                    </div>
-                    <button onClick={() => view(m.id, "master")} className="rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-slate-50">View</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section>
-            <h3 className="mb-2 text-sm font-semibold">Tailored versions ({versions.length})</h3>
-            {versions.length === 0 ? <EmptyState>No tailored versions yet. Use Tailor Resume against a job description.</EmptyState> : (
-              <ul className="space-y-2">
-                {versions.map((v) => (
-                  <li key={v.id} className="flex flex-wrap items-center justify-between gap-2 paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-3 text-sm">
-                    <div>
-                      <p className="font-medium">
-                        <Link href={`/resume/versions/${v.id}`}>{v.label}</Link>
-                      </p>
-                      <p className="text-xs text-postmark">missing: {v.missing_keywords.slice(0, 5).join(", ") || "none"}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <ScoreBadge score={v.ats_score} />
-                      <button onClick={() => view(v.id, "version")} className="rounded-lg border px-2.5 py-1 text-xs font-medium hover:bg-slate-50">View</button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </>
-      )}
-
-      {openId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOpenId(null)}>
-          <div className="max-h-[80vh] w-full max-w-2xl overflow-auto rounded-xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-2 flex justify-between">
-              <h3 className="font-semibold">Resume text</h3>
-              <button onClick={() => setOpenId(null)} className="text-sm text-postmark hover:underline">Close</button>
-            </div>
-            <pre className="whitespace-pre-wrap text-xs">{openText}</pre>
-          </div>
+        <div className="grid items-start gap-6 lg:grid-cols-[320px_1fr]">
+          <MasterList masters={masters} onView={(id) => view(id, "master")} />
+          <VersionList versions={versions} onView={(id) => view(id, "version")} />
         </div>
       )}
+
+      {openId && <ResumeTextDialog text={openText} onClose={() => setOpenId(null)} />}
+    </div>
+  );
+}
+
+function MasterList({ masters, onView }: { masters: Resume[]; onView: (id: string) => void }) {
+  return (
+    <Panel>
+      <PanelHeader title="Master resumes" meta={`${masters.length} on file`} />
+      {masters.length === 0 ? (
+        <EmptyState title="No master resume" body="Upload your current resume to start." />
+      ) : (
+        <ul className="stagger space-y-2">
+          {masters.map((m) => {
+            const lines = (m.raw_text ?? "").split("\n").length;
+            return (
+              <li key={m.id} className="flex items-center justify-between gap-3 rounded-md border border-line bg-bg p-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-ink">{m.filename}</p>
+                  <p className="mt-0.5 font-mono text-[12px] tabular text-ink-3">{m.parse_status} · {lines} lines</p>
+                </div>
+                <Button variant="secondary" size="sm" onClick={() => onView(m.id)}>View</Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+function VersionList({ versions, onView }: { versions: ResumeVersion[]; onView: (id: string) => void }) {
+  return (
+    <Panel>
+      <PanelHeader title="Tailored versions" meta={`${versions.length} total`} />
+      {versions.length === 0 ? (
+        <EmptyState title="No tailored versions" body="Use Tailor resume against a job description to create one." />
+      ) : (
+        <ul className="stagger divide-y divide-line">
+          {versions.map((v) => {
+            const extra = v.missing_keywords.length - MAX_MISSING_SHOWN;
+            return (
+              <li key={v.id} className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    <Link href={`/resume/versions/${v.id}`} className={linkCls}>{v.label}</Link>
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <Label className="mr-1">Missing</Label>
+                    {v.missing_keywords.length === 0 && <span className="text-[13px] text-ink-3">none</span>}
+                    {v.missing_keywords.slice(0, MAX_MISSING_SHOWN).map((k) => <Tag key={k} tone="bad">{k}</Tag>)}
+                    {extra > 0 && <span className="font-mono text-[12px] text-ink-3">+{extra}</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge tone={scoreTone(v.ats_score)} className="tabular">
+                    {v.ats_score == null ? "Not scored" : `ATS ${Math.round(v.ats_score)}`}
+                  </Badge>
+                  <Button variant="secondary" size="sm" onClick={() => onView(v.id)}>View</Button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
+function ResumeTextDialog({ text, onClose }: { text: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4 backdrop-blur-[2px]" onClick={onClose}>
+      <div
+        role="dialog" aria-modal="true" aria-labelledby="resume-text-title"
+        className="dialog-in flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pop"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
+          <h3 id="resume-text-title" className="font-semibold text-ink">Resume text</h3>
+          <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
+        </div>
+        <pre className="scroll-quiet overflow-auto whitespace-pre-wrap break-words p-5 font-mono text-[12px] leading-relaxed text-ink-2">{text}</pre>
+      </div>
     </div>
   );
 }

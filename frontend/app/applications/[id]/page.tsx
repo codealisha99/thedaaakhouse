@@ -1,115 +1,151 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { EmptyState, ErrorBox, ScoreBadge, Spinner, StatusBadge, StatusSelect, Field, inputCls } from "@/components/ui";
+import { use, useCallback, useEffect, useState } from "react";
+import {
+  Badge, Button, DefList, EmptyState, ErrorState, Field, Label, LinkButton, LoadingBlock, Meter, Notice,
+  PageHeader, Panel, PanelHeader, Score, Tabs, Tag, Tone, TrackingId, cx, inputCls, linkCls, scoreTone, textareaCls,
+} from "@/components/ds";
+import { StageBadge, StageRoute, StatusSelect } from "@/components/route";
 import { api } from "@/lib/api";
-import type { ApplicationDetail, ResumeVersion } from "@/types";
+import { relativeDays, stageFor, stageOf } from "@/lib/journey";
+import type { Application, ApplicationDetail, FitEvaluation, InterviewPlan, ResumeVersion } from "@/types";
 
 const TABS = ["Overview", "Fit", "Job Description", "Company", "Resume", "ATS", "Interview"] as const;
+type Tab = (typeof TABS)[number];
+type Msg = { text: string; tone: "ok" | "bad" } | null;
+type PatchFn = (p: Record<string, unknown>, note?: string) => Promise<void>;
+type RunFn = <T>(fn: () => Promise<T>, note: string) => Promise<void>;
+type Research = ApplicationDetail["research"][number];
 
-export default function AppDetail({ params }: { params: { id: string } }) {
+export default function AppDetail({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const [detail, setDetail] = useState<ApplicationDetail | null>(null);
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Overview");
+  const [tab, setTab] = useState<Tab>("Overview");
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<Msg>(null);
 
   const load = useCallback(async () => {
     setState("loading");
     try {
-      setDetail(await api.getApp(params.id));
+      setDetail(await api.getApp(id));
       setState("ready");
     } catch (e) {
       setError(e instanceof Error ? e.message : "load failed");
       setState("error");
     }
-  }, [params.id]);
+  }, [id]);
 
   useEffect(() => { load(); }, [load]);
 
-  async function patch(patch: Record<string, unknown>, note?: string) {
+  const patch: PatchFn = async (body, note) => {
     setBusy(true); setMsg(null);
     try {
-      const updated = await api.patchApp(params.id, patch as never);
+      const updated = await api.patchApp(id, body as never);
       setDetail((d) => (d ? { ...d, application: { ...d.application, ...updated } } : d));
-      setMsg(note ?? "Saved.");
+      setMsg({ text: note ?? "Saved.", tone: "ok" });
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Save failed.");
+      setMsg({ text: e instanceof Error ? e.message : "Save failed.", tone: "bad" });
     } finally {
       setBusy(false);
     }
-  }
+  };
 
-  async function run<T>(fn: () => Promise<T>, note: string) {
+  const run: RunFn = async (fn, note) => {
     setBusy(true); setMsg(null);
     try {
       await fn();
       await load();
-      setMsg(note);
+      setMsg({ text: note, tone: "ok" });
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Operation failed.");
+      setMsg({ text: e instanceof Error ? e.message : "Operation failed.", tone: "bad" });
     } finally {
       setBusy(false);
     }
-  }
+  };
 
-  if (state === "loading") return <Spinner />;
-  if (state === "error" || !detail) return <ErrorBox message={error} onRetry={load} />;
+  if (state === "loading") return <LoadingBlock rows={5} />;
+  if (state === "error" || !detail) return <ErrorState message={error} onRetry={load} />;
   const a = detail.application;
 
   return (
-    <div className="space-y-5">
-      <div className="paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-serif text-3xl font-bold tracking-tight text-postalnavy">{a.company || "Untitled"} · {a.role}</h2>
-            <p className="text-sm text-postmark">{a.location ?? ""}{a.job_url ? <> · <a href={a.job_url} target="_blank" rel="noreferrer" className="text-violet-700 hover:underline">posting ⧉</a></> : null}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <ScoreBadge score={a.ats_score} />
-            <StatusBadge status={a.status} />
-            <StatusSelect small value={a.status} onChange={(s) => patch({ status: s }, "Status updated.")} />
-          </div>
-        </div>
-        {msg && <p className="mt-2 text-sm text-slate-600">{msg}</p>}
-      </div>
-
-      <nav className="flex gap-1.5 overflow-x-auto">
-        {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium ${tab === t ? "bg-slate-900 text-white" : "border bg-envelope hover:bg-kraft/20"}`}>
-            {t}
-          </button>
-        ))}
-      </nav>
-
-      <div className="paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5">
-        {tab === "Overview" && <OverviewTab appId={params.id} detail={detail} patch={patch} busy={busy} />}
-        {tab === "Fit" && <FitTab appId={params.id} run={run} busy={busy} />}
+    <div className="space-y-6">
+      <AppHeader a={a} onStatus={(s) => patch({ status: s }, "Status updated.")} />
+      {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+      <Tabs tabs={TABS} value={tab} onChange={setTab} label="Application sections" />
+      <Panel key={tab} className="rise-in min-h-64">
+        {tab === "Overview" && <OverviewTab detail={detail} patch={patch} />}
+        {tab === "Fit" && <FitTab appId={id} run={run} busy={busy} />}
         {tab === "Job Description" && <JdTab detail={detail} />}
-        {tab === "Company" && <CompanyTab appId={params.id} detail={detail} run={run} busy={busy} />}
-        {tab === "Resume" && <ResumeTab appId={params.id} detail={detail} run={run} busy={busy} reload={load} />}
-        {tab === "ATS" && <AtsTab appId={params.id} detail={detail} run={run} busy={busy} />}
-        {tab === "Interview" && <PrepTab appId={params.id} detail={detail} run={run} busy={busy} />}
-      </div>
+        {tab === "Company" && <CompanyTab appId={id} detail={detail} run={run} busy={busy} />}
+        {tab === "Resume" && <ResumeTab appId={id} detail={detail} run={run} busy={busy} />}
+        {tab === "ATS" && <AtsTab appId={id} detail={detail} run={run} busy={busy} />}
+        {tab === "Interview" && <PrepTab appId={id} detail={detail} run={run} busy={busy} />}
+      </Panel>
     </div>
   );
 }
 
-function OverviewTab({ detail, patch, busy }: {
-  detail: ApplicationDetail; appId: string;
-  patch: (p: Record<string, unknown>, note?: string) => Promise<void>; busy: boolean;
-}) {
+/* ---------- Header: route, identity, score, status ---------- */
+
+function AtsChip({ score }: { score: number | null }) {
+  return (
+    <Badge tone={scoreTone(score)}>
+      <span className="font-mono tabular">ATS {score == null ? "—" : score.toFixed(0)}</span>
+    </Badge>
+  );
+}
+
+function AppHeader({ a, onStatus }: { a: Application; onStatus: (s: string) => void }) {
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Application"
+        title={a.company || "Untitled"}
+        description={
+          <>
+            {a.role}
+            {a.location ? ` · ${a.location}` : ""}
+            {a.job_url && (
+              <>
+                {" · "}
+                <a href={a.job_url} target="_blank" rel="noreferrer" className={linkCls}>View posting ↗</a>
+              </>
+            )}
+            <span className="mt-2 block"><TrackingId id={a.id} /></span>
+          </>
+        }
+        actions={
+          <>
+            <AtsChip score={a.ats_score} />
+            <StatusSelect value={a.status} onChange={onStatus} />
+          </>
+        }
+      />
+      <Panel>
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <StageBadge key={a.status} status={a.status} updatedAt={a.updated_at} stamp />
+          {a.updated_at && <span className="font-mono text-[12px] text-ink-3">Last moved {relativeDays(a.updated_at)}</span>}
+        </div>
+        <StageRoute status={a.status} updatedAt={a.updated_at} history={a.status_history} />
+      </Panel>
+    </div>
+  );
+}
+
+/* ---------- Overview: fields + vertical timeline ---------- */
+
+function OverviewTab({ detail, patch }: { detail: ApplicationDetail; patch: PatchFn }) {
   const a = detail.application;
   const [notes, setNotes] = useState(a.notes);
   // Sync when the application (re)loads; blur-saves only on actual edits.
   useEffect(() => { setNotes(detail.application.notes); }, [detail.application.id, detail.application.notes]);
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+    <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
+      <div className="space-y-5">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Date saved"><input className={inputCls} type="date" defaultValue={a.date_saved ?? ""} onBlur={(e) => patch({ date_saved: e.target.value || null })} /></Field>
           <Field label="Date applied"><input className={inputCls} type="date" defaultValue={a.date_applied ?? ""} onBlur={(e) => patch({ date_applied: e.target.value || null })} /></Field>
           <Field label="Salary"><input className={inputCls} defaultValue={a.salary ?? ""} onBlur={(e) => patch({ salary: e.target.value || null })} /></Field>
@@ -117,219 +153,301 @@ function OverviewTab({ detail, patch, busy }: {
         </div>
         <Field label="Next step"><input className={inputCls} defaultValue={a.next_step ?? ""} onBlur={(e) => patch({ next_step: e.target.value || null })} /></Field>
         <Field label="Notes">
-          <textarea className={`${inputCls} min-h-28`} value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={() => { if (notes !== a.notes) patch({ notes }); }} />
+          <textarea className={textareaCls} value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={() => { if (notes !== a.notes) patch({ notes }); }} />
         </Field>
       </div>
-      <div>
-        <h3 className="mb-2 text-sm font-semibold">Timeline</h3>
-        {a.status_history.length === 0 ? (
-          <p className="text-sm text-postmark">No events yet.</p>
-        ) : (
-          <ol className="space-y-2 text-sm">
-            {[...a.status_history].reverse().map((h, i) => (
-              <li key={i} className="rounded-lg bg-slate-50 px-3 py-2">
-                {h.from ? <><StatusBadge status={h.from} /> → </> : "Created as "}
-                <StatusBadge status={h.to} />
-                <span className="ml-2 text-xs text-slate-400">{new Date(h.at).toLocaleString()}</span>
-              </li>
-            ))}
-          </ol>
-        )}
-        <p className="mt-3 text-xs text-slate-400">
-          Attached resume: {detail.attached_version?.label ?? "none"} ·
-          ATS runs: {detail.ats_history.length} · Prep plans: {detail.interview_preps.length}
-        </p>
-      </div>
+      <aside className="space-y-6">
+        <div>
+          <PanelHeader title="Timeline" meta="Newest first" />
+          <Timeline history={a.status_history} />
+        </div>
+        <DefList items={[
+          { label: "Attached resume", value: detail.attached_version?.label ?? "none" },
+          { label: "ATS runs", value: <span className="font-mono tabular">{detail.ats_history.length}</span> },
+          { label: "Prep plans", value: <span className="font-mono tabular">{detail.interview_preps.length}</span> },
+        ]} />
+      </aside>
     </div>
   );
 }
+
+type HistoryItem = Application["status_history"][number];
+
+function Timeline({ history }: { history: HistoryItem[] }) {
+  if (history.length === 0) return <p className="text-sm text-ink-3">No events yet.</p>;
+  return (
+    <ol className="stagger relative space-y-5 border-l border-line-strong pl-5">
+      {[...history].reverse().map((h, i) => {
+        const color = stageOf(stageFor(h.to, null)).color;
+        return (
+          <li key={`${h.at}-${i}`} className="relative">
+            <span aria-hidden="true" className="absolute -left-[25px] top-1.5 size-2.5 rounded-full border-2 border-surface"
+              style={{ background: color, boxShadow: `0 0 0 1px ${color}` }} />
+            <p className="flex flex-wrap items-center gap-1.5 text-sm">
+              {h.from ? (
+                <>
+                  <StageBadge status={h.from} />
+                  <span aria-hidden="true" className="text-ink-3">→</span>
+                </>
+              ) : <span className="text-ink-2">Created as</span>}
+              <StageBadge status={h.to} />
+            </p>
+            <time dateTime={h.at} className="mt-1.5 block font-mono text-[12px] tabular text-ink-3">{new Date(h.at).toLocaleString()}</time>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/* ---------- Job description ---------- */
 
 function JdTab({ detail }: { detail: ApplicationDetail }) {
   const a = detail.application;
   const jd = a.jd_analysis;
   return (
-    <div className="space-y-4 text-sm">
-      {!a.raw_jd && <EmptyState>No job description saved. Edit this application from the Tracker to paste one.</EmptyState>}
+    <div className="space-y-6">
+      {!a.raw_jd && <EmptyState title="No job description saved" body="Edit this application from the Tracker to paste one." />}
       {jd && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <h3 className="mb-1 font-semibold">Required skills ({jd.skills.length})</h3>
-            <div className="flex flex-wrap gap-1.5">
-              {jd.skills.map((s) => <span key={s} className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-medium text-violet-800">{s}</span>)}
-            </div>
-            <h3 className="mb-1 mt-4 font-semibold">Top keywords</h3>
-            <div className="flex flex-wrap gap-1.5">
-              {jd.keywords.slice(0, 20).map((k) => <span key={k.term} className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs">{k.term} ×{k.count}</span>)}
-            </div>
-            {jd.experience_years != null && <p className="mt-3">Experience required: <strong>{jd.experience_years}+ years</strong></p>}
+        <div className="grid gap-8 md:grid-cols-2">
+          <div className="space-y-6">
+            <section>
+              <h3 className="mb-2 text-sm font-semibold">Required skills <span className="font-mono font-normal text-ink-3 tabular">({jd.skills.length})</span></h3>
+              <div className="flex flex-wrap gap-1.5">{jd.skills.map((s) => <Tag key={s}>{s}</Tag>)}</div>
+            </section>
+            <section>
+              <h3 className="mb-2 text-sm font-semibold">Top keywords</h3>
+              <div className="flex flex-wrap gap-1.5">
+                {jd.keywords.slice(0, 20).map((k) => <Tag key={k.term}>{k.term} ×{k.count}</Tag>)}
+              </div>
+            </section>
+            {jd.experience_years != null && (
+              <p className="text-sm text-ink-2">Experience required: <strong className="font-mono text-ink tabular">{jd.experience_years}+ years</strong></p>
+            )}
           </div>
-          <div>
-            <h3 className="mb-1 font-semibold">Responsibilities</h3>
-            <ul className="list-disc space-y-1 pl-5 text-slate-700">
+          <section>
+            <h3 className="mb-2 text-sm font-semibold">Responsibilities</h3>
+            <ul className="list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-ink-2">
               {jd.responsibilities.map((r, i) => <li key={i}>{r}</li>)}
             </ul>
-          </div>
+          </section>
         </div>
       )}
       {a.raw_jd && (
-        <details>
-          <summary className="cursor-pointer text-violet-700">Raw job description ({a.raw_jd.length} chars)</summary>
-          <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs">{a.raw_jd}</pre>
+        <details className="rounded-md border border-line bg-sunken/50 p-4">
+          <summary className={cx("cursor-pointer text-sm", linkCls)}>Raw job description ({a.raw_jd.length} chars)</summary>
+          <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-ink-2">{a.raw_jd}</pre>
         </details>
       )}
     </div>
   );
 }
 
+/* ---------- Company research ---------- */
+
+function ResearchSummary({ r }: { r: Research }) {
+  const statements = (r.profile.extracted_statements as string[] | undefined) ?? [];
+  const tech = (r.profile.technology_signals as string[] | undefined) ?? [];
+  return (
+    <div className="space-y-4 text-sm">
+      <p className="text-base font-medium text-ink">
+        {r.name}
+        {r.website && <> · <a href={r.website} target="_blank" rel="noreferrer" className={cx("break-all", linkCls)}>{r.website}</a></>}
+      </p>
+      {statements.map((s, i) => (
+        <blockquote key={i} className="border-l-2 border-line-strong pl-3 leading-relaxed text-ink-2">“{s}”</blockquote>
+      ))}
+      {tech.length > 0 && (
+        <div>
+          <Label className="mb-2 block">Tech signals</Label>
+          <div className="flex flex-wrap gap-1.5">{tech.map((t) => <Tag key={t}>{t}</Tag>)}</div>
+        </div>
+      )}
+      <p className="break-words text-[12px] text-ink-3">Sources: {r.sources.map((s) => s.source_url).join(", ") || "none recorded"}</p>
+    </div>
+  );
+}
+
 function CompanyTab({ appId, detail, run, busy }: {
-  appId: string; detail: ApplicationDetail;
-  run: <T>(fn: () => Promise<T>, note: string) => Promise<void>; busy: boolean;
+  appId: string; detail: ApplicationDetail; run: RunFn; busy: boolean;
 }) {
   const [website, setWebsite] = useState("");
   const latest = detail.research[0];
   return (
-    <div className="space-y-3 text-sm">
-      <div className="flex flex-wrap gap-2">
-        <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://company.com (optional)"
-          className="min-w-64 flex-1 rounded-lg border px-3 py-1.5" />
-        <button disabled={busy} onClick={() => run(() => api.runResearch(appId, website || undefined), "Research saved.")}
-          className="rounded-md bg-postred px-4 py-1.5 font-serif font-bold text-envelope disabled:opacity-40">
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Company website" className="min-w-0 flex-1 basis-64">
+          <input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://company.com (optional)" className={inputCls} />
+        </Field>
+        <Button variant="accent" disabled={busy} onClick={() => run(() => api.runResearch(appId, website || undefined), "Research saved.")}>
           Run research
-        </button>
+        </Button>
       </div>
-      {!latest && <EmptyState>No research yet. Paste the company website and run it — findings are extracted from the real page, with sources.</EmptyState>}
-      {latest && (
-        <div className="space-y-2">
-          <p><strong>{latest.name}</strong>{latest.website ? <> · <a href={latest.website} target="_blank" rel="noreferrer" className="text-violet-700 hover:underline">{latest.website}</a></> : null}</p>
-          {(latest.profile.extracted_statements as string[] ?? []).map((s, i) => <p key={i} className="rounded-lg bg-slate-50 p-2.5">“{s}”</p>)}
-          {((latest.profile.technology_signals as string[]) ?? []).length > 0 && (
-            <p>Tech signals: {((latest.profile.technology_signals as string[]) ?? []).join(", ")}</p>
-          )}
-          <p className="text-xs text-slate-400">Sources: {latest.sources.map((s) => s.source_url).join(", ") || "none recorded"}</p>
-        </div>
+      {!latest && <EmptyState title="No research yet" body="Paste the company website and run it. Findings are extracted from the real page, with sources." />}
+      {latest && <ResearchSummary r={latest} />}
+    </div>
+  );
+}
+
+/* ---------- Resume versions ---------- */
+
+function ResumeTab({ appId, detail, run, busy }: {
+  appId: string; detail: ApplicationDetail; run: RunFn; busy: boolean;
+}) {
+  const attachedId = detail.application.resume_version_id;
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-ink-2">Attached version: <strong className="text-ink">{detail.attached_version?.label ?? "none"}</strong></p>
+        <LinkButton href={`/resume/tailor?app=${appId}`} variant="accent">Tailor a resume for this JD →</LinkButton>
+      </div>
+      {detail.versions.length === 0 ? (
+        <EmptyState title="No tailored versions yet" body="Tailor a resume for this job description, then attach it here." />
+      ) : (
+        <ul className="stagger divide-y divide-line rounded-md border border-line">
+          {detail.versions.map((v) => (
+            <VersionRow key={v.id} v={v} attached={attachedId === v.id} appId={appId} run={run} busy={busy} />
+          ))}
+        </ul>
       )}
     </div>
   );
 }
 
-function ResumeTab({ appId, detail, run, busy, reload }: {
-  appId: string; detail: ApplicationDetail;
-  run: <T>(fn: () => Promise<T>, note: string) => Promise<void>; busy: boolean; reload: () => void;
+function VersionRow({ v, attached, appId, run, busy }: {
+  v: ResumeVersion; attached: boolean; appId: string; run: RunFn; busy: boolean;
 }) {
   return (
-    <div className="space-y-3 text-sm">
-      <p>Attached version: <strong>{detail.attached_version?.label ?? "none"}</strong></p>
-      {detail.versions.length === 0 && <EmptyState>No tailored versions for this application yet.</EmptyState>}
-      <ul className="space-y-2">
-        {detail.versions.map((v: ResumeVersion) => (
-          <li key={v.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
-            <div>
-              <p className="font-medium">
-                <Link href={`/resume/versions/${v.id}`} className="text-violet-700 hover:underline">{v.label}</Link>
-              </p>
-              <p className="text-xs text-postmark">ATS before: {v.ats_score ?? "—"} · missing: {v.missing_keywords.slice(0, 5).join(", ") || "none"}</p>
-            </div>
-            <div className="flex gap-2">
-              {detail.application.resume_version_id !== v.id && (
-                <button disabled={busy} onClick={() => run(() => api.attachVersion(appId, v.id), "Version attached.")}
-                  className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">Attach</button>
-              )}
-              <Link href={`/resume/ats?app=${appId}&version=${v.id}`} className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-slate-50">Check ATS</Link>
-            </div>
-          </li>
-        ))}
-      </ul>
-      <Link href={`/resume/tailor?app=${appId}`} className="inline-block rounded-md bg-postred px-4 py-2 font-serif font-bold text-envelope">
-        Tailor a resume for this JD →
-      </Link>
-    </div>
+    <li className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5">
+      <div className="min-w-0 space-y-2">
+        <p className="flex flex-wrap items-center gap-2 font-medium">
+          <Link href={`/resume/versions/${v.id}`} className={linkCls}>{v.label}</Link>
+          {attached && <Badge tone="brand">Attached</Badge>}
+        </p>
+        <p className="font-mono text-[12px] text-ink-3 tabular">ATS before {v.ats_score ?? "—"}</p>
+        <div className="flex flex-wrap gap-1.5">
+          {v.missing_keywords.length === 0
+            ? <span className="text-[12px] text-ink-3">No missing keywords</span>
+            : v.missing_keywords.slice(0, 5).map((k) => <Tag key={k} tone="bad">{k}</Tag>)}
+        </div>
+      </div>
+      <div className="flex shrink-0 gap-2">
+        {!attached && (
+          <Button variant="secondary" disabled={busy} onClick={() => run(() => api.attachVersion(appId, v.id), "Version attached.")}>Attach</Button>
+        )}
+        <LinkButton href={`/resume/ats?app=${appId}&version=${v.id}`} variant="secondary">Check ATS</LinkButton>
+      </div>
+    </li>
+  );
+}
+
+/* ---------- ATS ---------- */
+
+function TagGroup({ title, items, tone }: { title: string; items: string[]; tone: "ok" | "bad" }) {
+  return (
+    <section>
+      <h4 className="mb-2 text-sm font-semibold">{title}</h4>
+      {items.length === 0
+        ? <p className="text-sm text-ink-3">None</p>
+        : <div className="flex flex-wrap gap-1.5">{items.map((s) => <Tag key={s} tone={tone}>{s}</Tag>)}</div>}
+    </section>
   );
 }
 
 function AtsTab({ appId, detail, run, busy }: {
-  appId: string; detail: ApplicationDetail;
-  run: <T>(fn: () => Promise<T>, note: string) => Promise<void>; busy: boolean;
+  appId: string; detail: ApplicationDetail; run: RunFn; busy: boolean;
 }) {
   const latest = detail.ats_history[0];
+  const hasResume = Boolean(detail.application.resume_version_id);
   return (
-    <div className="space-y-3 text-sm">
-      <button disabled={busy || !detail.application.resume_version_id}
-        onClick={() => run(() => api.runAts(appId, {}), "ATS analysis complete.")}
-        className="rounded-md bg-postred px-4 py-2 font-serif font-bold text-envelope disabled:opacity-40">
-        Run ATS on attached resume
-      </button>
-      {!detail.application.resume_version_id && <p className="text-postmark">Attach a resume version first (Resume tab).</p>}
-      {detail.ats_history.length === 0 && <EmptyState>No ATS runs yet.</EmptyState>}
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-ink-3">{hasResume ? "Scores the attached resume against this job description." : "Attach a resume version first (Resume tab)."}</p>
+        <Button variant="accent" disabled={busy || !hasResume} onClick={() => run(() => api.runAts(appId, {}), "ATS analysis complete.")}>
+          Run ATS on attached resume
+        </Button>
+      </div>
+      {detail.ats_history.length === 0 && <EmptyState title="No ATS runs yet" body="Run ATS on the attached resume to see matched and missing skills." />}
       {latest && (
-        <div className="space-y-3">
-          <p className="text-lg">Score: <ScoreBadge score={latest.score} /> <span className="text-xs text-slate-400">{latest.breakdown.methodology}</span></p>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-lg bg-slate-50 p-3">
-              <p className="font-semibold">Matched ({latest.breakdown.skills_matched.length})</p>
-              <p className="text-slate-700">{latest.breakdown.skills_matched.join(", ") || "—"}</p>
+        <div className="grid gap-8 lg:grid-cols-[260px_1fr]">
+          <Score value={latest.score} label="ATS score" caption={latest.breakdown.methodology} />
+          <div className="space-y-6">
+            <div className="grid gap-6 sm:grid-cols-2">
+              <TagGroup title={`Matched (${latest.breakdown.skills_matched.length})`} items={latest.breakdown.skills_matched} tone="ok" />
+              <TagGroup title={`Missing (${latest.breakdown.skills_missing.length})`} items={latest.breakdown.skills_missing} tone="bad" />
             </div>
-            <div className="rounded-lg bg-red-50 p-3">
-              <p className="font-semibold">Missing ({latest.breakdown.skills_missing.length})</p>
-              <p>{latest.breakdown.skills_missing.join(", ") || "—"}</p>
-            </div>
-          </div>
-          {latest.breakdown.formatting_issues.length > 0 && (
-            <p>Formatting issues: {latest.breakdown.formatting_issues.join(" · ")}</p>
-          )}
-          <div>
-            <p className="font-semibold">Recommendations</p>
-            <ul className="list-disc space-y-1 pl-5 text-slate-700">
-              {latest.breakdown.recommendations.map((r, i) => <li key={i}>{r}</li>)}
-            </ul>
+            {latest.breakdown.formatting_issues.length > 0 && (
+              <Notice tone="warn">Formatting issues: {latest.breakdown.formatting_issues.join(" · ")}</Notice>
+            )}
+            <section>
+              <h4 className="mb-2 text-sm font-semibold">Recommendations</h4>
+              <ul className="list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-ink-2">
+                {latest.breakdown.recommendations.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            </section>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- Interview prep ---------- */
+
+function PrepPlan({ plan }: { plan: InterviewPlan }) {
+  return (
+    <div className="space-y-5">
+      <dl className="space-y-4 text-sm">
+        <div>
+          <dt className="mb-2"><Label>Topics</Label></dt>
+          <dd className="flex flex-wrap gap-1.5">{plan.topics.map((t) => <Tag key={t}>{t}</Tag>)}</dd>
+        </div>
+        {plan.focus_areas.length > 0 && (
+          <div>
+            <dt className="mb-2"><Label>Focus (missing from your resume)</Label></dt>
+            <dd className="flex flex-wrap gap-1.5">{plan.focus_areas.map((f) => <Tag key={f} tone="bad">{f}</Tag>)}</dd>
+          </div>
+        )}
+      </dl>
+      <ol className="stagger space-y-3">
+        {plan.questions.map((q, i) => (
+          <li key={i} className="rounded-md border border-line p-4">
+            <p className="font-medium leading-snug text-ink">
+              <span className="mr-2 font-mono text-ink-3 tabular">{String(i + 1).padStart(2, "0")}</span>
+              {q.question}
+            </p>
+            <p className="mt-2 text-[13px] leading-relaxed text-ink-3">{q.category} · {q.reason} · <em>{q.source}</em></p>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
 
 function PrepTab({ appId, detail, run, busy }: {
-  appId: string; detail: ApplicationDetail;
-  run: <T>(fn: () => Promise<T>, note: string) => Promise<void>; busy: boolean;
+  appId: string; detail: ApplicationDetail; run: RunFn; busy: boolean;
 }) {
   const latest = detail.interview_preps[0];
   return (
-    <div className="space-y-3 text-sm">
-      <button disabled={busy} onClick={() => run(() => api.runPrep(appId), "Interview plan generated.")}
-        className="rounded-md bg-postred px-4 py-2 font-serif font-bold text-envelope disabled:opacity-40">
+    <div className="space-y-5">
+      <Button variant="accent" disabled={busy} onClick={() => run(() => api.runPrep(appId), "Interview plan generated.")}>
         Generate interview plan
-      </button>
-      {!latest && <EmptyState>No prep plan yet. Generated from this JD — each question says why it exists.</EmptyState>}
-      {latest && (
-        <div className="space-y-2">
-          <p><strong>Topics:</strong> {latest.plan.topics.join(", ")}</p>
-          {latest.plan.focus_areas.length > 0 && <p><strong>Focus (missing from your resume):</strong> {latest.plan.focus_areas.join(", ")}</p>}
-          <ol className="space-y-2">
-            {latest.plan.questions.map((q, i) => (
-              <li key={i} className="rounded-lg border p-3">
-                <p className="font-medium">{i + 1}. {q.question}</p>
-                <p className="mt-1 text-xs text-postmark">{q.category} · {q.reason} · <em>{q.source}</em></p>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
+      </Button>
+      {!latest && <EmptyState title="No prep plan yet" body="Generated from this JD. Each question says why it exists." />}
+      {latest && <PrepPlan plan={latest.plan} />}
     </div>
   );
 }
 
-const FIT_STYLE: Record<string, string> = {
-  target: "bg-emerald-100 text-emerald-800",
-  adjacent: "bg-blue-100 text-blue-800",
-  poor: "bg-red-100 text-red-800",
-  needs_review: "bg-amber-100 text-amber-800",
-};
+/* ---------- Fit ---------- */
 
-function FitTab({ appId, run, busy }: {
-  appId: string;
-  run: <T>(fn: () => Promise<T>, note: string) => Promise<void>; busy: boolean;
-}) {
-  const [evals, setEvals] = useState<import("@/types").FitEvaluation[]>([]);
+const FIT_TONE: Record<FitEvaluation["classification"], Tone> = {
+  target: "ok", adjacent: "brand", poor: "bad", needs_review: "warn",
+};
+const FIT_CLASSES = ["target", "adjacent", "poor", "needs_review"] as const;
+
+function FitTab({ appId, run, busy }: { appId: string; run: RunFn; busy: boolean }) {
+  const [evals, setEvals] = useState<FitEvaluation[]>([]);
   const [state, setState] = useState<"loading" | "ready">("loading");
 
   const load = useCallback(async () => {
@@ -350,69 +468,106 @@ function FitTab({ appId, run, busy }: {
     }, "Fit evaluation complete.");
   }
 
-  async function override(id: string, classification: string) {
+  async function override(evaluationId: string, classification: string) {
     await run(async () => {
-      await api.overrideFit(id, classification);
+      await api.overrideFit(evaluationId, classification);
       setEvals(await api.fitHistory(appId));
-    }, "Override recorded — scoring rules unchanged.");
+    }, "Override recorded. Scoring rules unchanged.");
   }
 
-  if (state === "loading") return <Spinner />;
+  if (state === "loading") return <LoadingBlock rows={3} />;
   return (
-    <div className="space-y-3 text-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <button disabled={busy} onClick={evaluate}
-          className="rounded-md bg-postred px-4 py-2 font-serif font-bold text-envelope disabled:opacity-40">
-          Evaluate career fit
-        </button>
-        <Link href="/profile" className="text-violet-700 hover:underline">Edit career profile →</Link>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="accent" disabled={busy} onClick={evaluate}>Evaluate career fit</Button>
+        <LinkButton href="/profile" variant="ghost">Edit career profile →</LinkButton>
       </div>
-      {!latest && <EmptyState>No fit evaluation yet. Scored against your career profile with reasons.</EmptyState>}
+      {!latest && <EmptyState title="No fit evaluation yet" body="Scored against your career profile, with reasons." />}
       {latest && (
-        <div className="space-y-3">
-          <p className="flex flex-wrap items-center gap-2 text-lg">
-            <span className={`rounded-full px-3 py-0.5 text-sm font-bold ${FIT_STYLE[latest.classification]}`}>
-              {latest.classification.replace("_", " ")}{latest.overridden ? " (override)" : ""}
-            </span>
-            <span className="font-mono">{(latest.score * 100).toFixed(0)}%</span>
-            <span className="text-sm text-postmark">→ {latest.recommendation}</span>
-          </p>
-          <div className="grid gap-2 md:grid-cols-2">
-            {Object.entries(latest.factors).map(([k, v]) => (
-              <p key={k} className="rounded-lg bg-slate-50 p-2">
-                {k}: <strong>{(Number(v) * 100).toFixed(0)}%</strong>
-              </p>
-            ))}
-          </div>
-          {latest.reasons.length > 0 && (
-            <div><p className="font-semibold">Why</p>
-              <ul className="list-disc pl-5 text-slate-700">{latest.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
-            </div>
-          )}
-          {latest.gaps.length > 0 && (
-            <div><p className="font-semibold">Gaps</p>
-              <ul className="list-disc pl-5 text-slate-700">{latest.gaps.slice(0, 8).map((r, i) => <li key={i}>{r}</li>)}</ul>
-            </div>
-          )}
-          {latest.conflicts.length > 0 && (
-            <div className="rounded-lg bg-red-50 p-2.5">
-              <p className="font-semibold">Conflicts</p>
-              <ul className="list-disc pl-5">{latest.conflicts.map((r, i) => <li key={i}>{r}</li>)}</ul>
-            </div>
-          )}
-          {latest.unknown.length > 0 && (
-            <p className="text-xs text-postmark">Unknown: {latest.unknown.join(" · ")}</p>
-          )}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-postmark">Override:</span>
-            {(["target", "adjacent", "poor", "needs_review"] as const).map((c) => (
-              <button key={c} disabled={busy} onClick={() => override(latest.id, c)}
-                className="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50 disabled:opacity-40">{c.replace("_", " ")}</button>
-            ))}
-          </div>
-          {evals.length > 1 && <p className="text-xs text-postmark">{evals.length} evaluations in history (latest shown).</p>}
-        </div>
+        <FitResult e={latest} count={evals.length} busy={busy} onOverride={(c) => override(latest.id, c)} />
       )}
     </div>
+  );
+}
+
+function FitResult({ e, count, busy, onOverride }: {
+  e: FitEvaluation; count: number; busy: boolean; onOverride: (c: string) => void;
+}) {
+  return (
+    <div className="grid gap-8 lg:grid-cols-[260px_1fr]">
+      <div className="space-y-6">
+        <Score value={e.score * 100} label="Career fit" caption={e.recommendation} />
+        <div className="space-y-3">
+          <Label className="block">Classification</Label>
+          <Badge tone={FIT_TONE[e.classification]} className="capitalize">
+            {e.classification.replace("_", " ")}{e.overridden ? " (override)" : ""}
+          </Badge>
+        </div>
+        <div className="space-y-2">
+          <Label className="block">Override</Label>
+          <div className="flex flex-wrap gap-2">
+            {FIT_CLASSES.map((c) => (
+              <Button key={c} variant="secondary" size="sm" disabled={busy} onClick={() => onOverride(c)} className="capitalize">
+                {c.replace("_", " ")}
+              </Button>
+            ))}
+          </div>
+        </div>
+        {count > 1 && <p className="text-[12px] text-ink-3">{count} evaluations in history (latest shown).</p>}
+      </div>
+      <div className="space-y-6">
+        <FactorList factors={e.factors} />
+        {e.reasons.length > 0 && <BulletSection title="Why" items={e.reasons} />}
+        {e.gaps.length > 0 && <BulletSection title="Gaps" items={e.gaps.slice(0, 8)} />}
+        {e.conflicts.length > 0 && (
+          <Notice tone="warn">
+            <p className="font-semibold text-ink">Conflicts</p>
+            <ul className="mt-1.5 list-disc pl-5">{e.conflicts.map((r, i) => <li key={i}>{r}</li>)}</ul>
+          </Notice>
+        )}
+        {e.unknown.length > 0 && (
+          <div>
+            <Label className="mb-2 block">Unknown</Label>
+            <div className="flex flex-wrap gap-1.5">{e.unknown.map((u) => <Tag key={u}>{u}</Tag>)}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FactorList({ factors }: { factors: Record<string, number> }) {
+  const entries = Object.entries(factors);
+  if (entries.length === 0) return null;
+  return (
+    <section>
+      <h4 className="mb-3 text-sm font-semibold">Factors</h4>
+      <ul className="space-y-3.5">
+        {entries.map(([k, v]) => {
+          const pct = Number(v) * 100;
+          const name = k.replace(/_/g, " ");
+          return (
+            <li key={k}>
+              <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
+                <span className="text-ink-2">{name}</span>
+                <span className="font-mono tabular text-ink">{pct.toFixed(0)}%</span>
+              </div>
+              <Meter value={pct} label={name} />
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+function BulletSection({ title, items }: { title: string; items: string[] }) {
+  return (
+    <section>
+      <h4 className="mb-2 text-sm font-semibold">{title}</h4>
+      <ul className="list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-ink-2">
+        {items.map((r, i) => <li key={i}>{r}</li>)}
+      </ul>
+    </section>
   );
 }

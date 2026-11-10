@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { EmptyState, ErrorBox, Field, Spinner, inputCls } from "@/components/ui";
+import { Button, EmptyState, ErrorState, Field, Label, LoadingBlock, PageHeader, Panel, PanelHeader, Tag, selectCls } from "@/components/ds";
+import { StageBadge } from "@/components/route";
 import { api } from "@/lib/api";
-import type { Application, ApplicationDetail } from "@/types";
+import type { Application, ApplicationDetail, InterviewPlan } from "@/types";
 
 export default function Interview() {
   const [apps, setApps] = useState<Application[]>([]);
@@ -35,44 +36,72 @@ export default function Interview() {
     }
   }
 
-  if (!loaded) return <Spinner />;
+  if (!loaded) return <LoadingBlock rows={3} />;
   const latest = detail?.interview_preps[0];
+  const selected = apps.find((a) => a.id === appId);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
-      <div>
-        <h2 className="font-serif text-3xl font-bold tracking-tight text-postalnavy">Interview Prep</h2>
-        <p className="postal-copy font-hand text-xl italic text-postmark">Appointment Slips</p>
-        <p className="text-sm text-postmark">Derived from the application&apos;s JD — every question states its reason.</p>
-      </div>
-      <div className="flex gap-2 paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5">
-        <div className="flex-1">
+    <div className="space-y-8">
+      <PageHeader
+        eyebrow="Interview"
+        title="Interview prep"
+        description="Derived from the application's job description. Every question states its reason."
+      />
+      <div className="grid items-start gap-6 lg:grid-cols-[320px_1fr]">
+        <Panel className="space-y-4 lg:sticky lg:top-6">
+          <PanelHeader title="Application" meta="Generate a plan from its job description" />
           <Field label="Application">
-            <select className={inputCls} value={appId} onChange={(e) => setAppId(e.target.value)}>
+            <select className={selectCls} value={appId} onChange={(e) => setAppId(e.target.value)}>
               {apps.map((a) => <option key={a.id} value={a.id}>{a.company} · {a.role}</option>)}
             </select>
           </Field>
+          {selected && <StageBadge status={selected.status} updatedAt={selected.updated_at} />}
+          <Button variant="accent" className="w-full" onClick={run} disabled={busy || !appId}>
+            {busy ? "Generating…" : "Generate plan"}
+          </Button>
+          {error && <p role="alert" className="text-sm text-bad">{error}</p>}
+        </Panel>
+        <div>
+          {!latest ? (
+            <EmptyState title="No prep plan for this application yet" body="Generate one from the panel. Each question says why it exists." />
+          ) : (
+            <Panel>
+              <PanelHeader title="Plan" meta={selected ? `${selected.company} · ${selected.role}` : undefined} />
+              <PrepPlan plan={latest.plan} />
+            </Panel>
+          )}
         </div>
-        <button onClick={run} disabled={busy || !appId}
-          className="self-end rounded-md bg-postred px-4 py-2 text-sm font-serif font-bold text-envelope disabled:opacity-40">
-          {busy ? "Generating…" : "Generate"}
-        </button>
       </div>
-      {error && <ErrorBox message={error} />}
-      {!latest ? <EmptyState>No prep plan for this application yet.</EmptyState> : (
-        <div className="space-y-2 paper-keep rounded-sm border border-kraft/60 bg-envelope shadow-paper p-5 text-sm">
-          <p><strong>Topics:</strong> {latest.plan.topics.join(", ")}</p>
-          {latest.plan.focus_areas.length > 0 && <p><strong>Focus:</strong> {latest.plan.focus_areas.join(", ")}</p>}
-          <ol className="space-y-2">
-            {latest.plan.questions.map((ques, i) => (
-              <li key={i} className="rounded-lg border p-3">
-                <p className="font-medium">{i + 1}. {ques.question}</p>
-                <p className="mt-1 text-xs text-postmark">{ques.category} · {ques.reason} · <em>{ques.source}</em></p>
-              </li>
-            ))}
-          </ol>
+    </div>
+  );
+}
+
+function PrepPlan({ plan }: { plan: InterviewPlan }) {
+  return (
+    <div className="space-y-5">
+      <dl className="space-y-4 text-sm">
+        <div>
+          <dt className="mb-2"><Label>Topics</Label></dt>
+          <dd className="flex flex-wrap gap-1.5">{plan.topics.map((t) => <Tag key={t}>{t}</Tag>)}</dd>
         </div>
-      )}
+        {plan.focus_areas.length > 0 && (
+          <div>
+            <dt className="mb-2"><Label>Focus</Label></dt>
+            <dd className="flex flex-wrap gap-1.5">{plan.focus_areas.map((f) => <Tag key={f} tone="bad">{f}</Tag>)}</dd>
+          </div>
+        )}
+      </dl>
+      <ol className="stagger space-y-3">
+        {plan.questions.map((q, i) => (
+          <li key={i} className="rounded-md border border-line p-4">
+            <p className="font-medium leading-snug text-ink">
+              <span className="mr-2 font-mono text-ink-3 tabular">{String(i + 1).padStart(2, "0")}</span>
+              {q.question}
+            </p>
+            <p className="mt-2 text-[13px] leading-relaxed text-ink-3">{q.category} · {q.reason} · <em>{q.source}</em></p>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
